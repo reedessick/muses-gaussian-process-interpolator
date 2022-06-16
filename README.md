@@ -11,6 +11,15 @@ Therefore, care is advised before using this on large or high-dimensional data.
 
 ## Quick Start Guide
 
+### Installation
+
+The code can be installed in the usual way.
+After cloning the repo, do something like
+```
+python setup.py install --prefix path/to/install
+```
+After this, be sure to update your environmental variables to point to your installation.
+
 ### Dependencies
 
   * numpy [version?]()
