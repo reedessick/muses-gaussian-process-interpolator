@@ -22,11 +22,7 @@ After this, be sure to update your environmental variables to point to your inst
 
 ### Dependencies
 
-  * numpy [version?]()
-
-### Examples
-
-**WRITE ME**
+  * [numpy](https://numpy.org/)
 
 ## References
 
