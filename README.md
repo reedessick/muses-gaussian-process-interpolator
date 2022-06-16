@@ -11,10 +11,6 @@ Therefore, care is advised before using this on large or high-dimensional data.
 
 ## Quick Start Guide
 
-### Installation
-
-**WRITE ME**
-
 ### Dependencies
 
   * numpy [version?]()
@@ -22,3 +18,7 @@ Therefore, care is advised before using this on large or high-dimensional data.
 ### Examples
 
 **WRITE ME**
+
+## References
+
+  * [Rasmussen and Williams (2006)](http://gaussianprocess.org/gpml/chapters/)
