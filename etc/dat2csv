@@ -9,7 +9,60 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 import sys
 import numpy as np
 
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
 from argparse import ArgumentParser
+
+#-------------------------------------------------
+
+def plot(data, column, verbose=False):
+    '''make a basic visualization of the data
+    '''
+    if args.verbose:
+        print('    plotting %s(muB, T)'%column)
+
+    x, y, z = np.transpose(data)
+
+    # assume a regular grid
+    nx = len(np.unique(x))
+    shape = (len(x)//nx, nx)
+
+    x = x.reshape(shape)[0,:]
+    y = y.reshape(shape)[:,0]
+    z = z.reshape(shape)
+
+    # now plot
+    fig = plt.figure()
+    ax = fig.add_axes([0.15, 0.15, 0.80, 0.80])
+
+    mappable = ax.imshow(
+        z,
+        extent=[np.min(x), np.max(x), np.min(y), np.max(y)],
+        aspect='auto',
+        origin='lower',
+    )
+
+    ax.contour(
+        x,
+        y,
+        z,
+        colors='grey',
+    )
+
+    ax.set_xlabel('$\mu_B\,[\mathrm{MeV}]$')
+    ax.set_ylabel('$T\,[\mathrm{MeV}]$')
+
+    cb = plt.colorbar(mappable)
+    cb.set_label(column)
+
+    # save
+    path = column + '.png'
+    if verbose:
+        print('    saving : '+path)
+    fig.savefig(path)
+    plt.close(fig)
 
 #-------------------------------------------------
 
@@ -24,6 +77,8 @@ parser.add_argument('--target', default=None, type=str,
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 
+parser.add_argument('-p', '--plot', default=False, action='store_true')
+
 args = parser.parse_args()
 
 assert len(args.source), 'please specify at least one --source!'
@@ -37,6 +92,8 @@ column, path = args.source[0]
 if args.verbose:
     print('loading : '+path)
 data = np.genfromtxt(path)
+if args.plot:
+    fig = plot(data, column, verbose=args.verbose)
 
 # start a dictionary so we can combine an arbitrary number of files
 collated = dict([('muB_MeV', data[:,0]), ('T_MeV', data[:,1]), (column, data[:,2])])
@@ -50,6 +107,8 @@ for column, path in args.source[1:]:
     if args.verbose:
         print('loading : '+path)
     data = np.genfromtxt(path)
+    if args.plot:
+        fig = plot(data, column, verbose=args.verbose)
 
     # check for consistency in the grid
     assert np.all(collated['muB_MeV'] == data[:,0]), 'conflict in baryon chemical potential grid'

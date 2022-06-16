@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+
+"""a simple test of the interpolator
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import time
+import numpy as np
+
+from argparse import ArgumentParser
+
+### non-standard libraries
+import mgpi
+
+#-------------------------------------------------
+
+# let's build an interpolator over the speed of sound using half the points available
+# the speed of sound seems to have the most interesting behavior, or at least features
+# that might be the hardest for the GP to emulate accruately
+
+path = '../etc/equation_of_state.csv.gz'
+print('loading data from : '+path)
+
+# load sample data
+data = np.genfromtxt(path, delimiter=',', names=True)
+
+# grab the relevant data
+baryon_chemical_potential = data['muB_MeV']
+temperature = data['T_MeV']
+speed_of_sound = data['speed_of_sound']
+
+num = len(np.unique(baryon_chemical_potential))
+shape = (len(data)//num, num)
+
+print('found data with shape :', shape)
+
+baryon_chemical_potential = baryon_chemical_potential.reshape(shape)
+temperature = temperature.reshape(shape)
+speed_of_sound = speed_of_sound.reshape(shape)
+
+# now decimate the data so that the covariance matrices we build fit in memory
+baryon_chemical_potential = baryon_chemical_potential[::10, ::10]
+temperature = temperature[::10, ::10]
+speed_of_sound = speed_of_sound[::10, ::10]
+
+print('downselected data to shape :', np.shape(speed_of_sound))
+
+#------------------------
+
+# let's then divide this into training and testing sets
+# we divid the grid in the following way: (o --> training set, x --> test set)
+#     o x o x o x
+#     x o x o x o
+#     o x o x o x
+#     x o x o x o
+
+print('formatting training and test sets')
+
+source_x = []
+source_f = []
+target_x = []
+target_f = []
+
+for ind in range(len(speed_of_sound[0])):
+    offset = ind % 2 ### figure out whether this is an odd or an even row
+
+    # grab the training data
+    source_x.append(np.transpose([baryon_chemical_potential[offset::2,ind], temperature[offset::2,ind]]))
+    source_f.append(speed_of_sound[offset::2,ind])
+
+    # grab the test data
+    target_x.append(np.transpose([baryon_chemical_potential[1-offset::2,ind], temperature[1-offset::2,ind]]))
+    target_f.append(speed_of_sound[1-offset::2,ind])
+
+source_x = np.concatenate(tuple(source_x))
+source_f = np.concatenate(tuple(source_f))
+
+target_x = np.concatenate(tuple(target_x))
+target_f = np.concatenate(tuple(target_f))
+
+print('selected %d training points, %d test points'%(len(source_x), len(target_x)))
+
+#------------------------
+
+print('estimating appropriate hyperparameters and constructing kernel')
+
+# now, let's guess at appropriate hyperparameters
+sigma = np.std(source_f) ### start with the marginal variance
+lengths = [ # twice the average grid spacing
+    np.mean(np.diff(baryon_chemical_potential[0,:])),
+    np.mean(np.diff(temperature[:,0])),
+]
+
+# construct a kernel
+kernel = mgpi.CombinedKernel(
+    mgpi.SquaredExponentialKernel(sigma, *lengths),
+    mgpi.WhiteNoiseKernel(sigma/1000), # a small white noise component for numerical stability
+)
+
+#------------------------
+
+print('computing interpolation estimate')
+
+# now let's compute estimates of the speed of sound at the test points
+t0 = time.time()
+mean, cov = mgpi.condition(target_x, source_x, source_f, kernel, verbose=True)
+print('    %.3f sec'%(time.time() - t0))
+
+#-------------------------------------------------
+
+raise NotImplementedError('''\
+plot the interpolated values and the error estimates. Compare this to the true values.
+sketch the basic approach to optimizing hyperparameters
+''')

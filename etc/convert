@@ -12,4 +12,5 @@
     --source pressure Press_Final_PAR_143_350_3_93_143_286_3D.dat \
     --source speed_of_sound SpSound_Final_PAR_143_350_3_93_143_286_3D.dat \
     --target equation_of_state.csv.gz \
+    --plot \
     --verbose
