@@ -76,7 +76,7 @@ class CombinedKernel(object):
 
 ### logic to compute the mean, cov at points on a grid conditioned on sample points given a kernel
 
-def x2cov(x1, x2, kernel):
+def x2cov(x1, x2, kernel, verbose=False):
     """a helper function that build covariance matrices
     """
     n1 = len(x1)
@@ -108,9 +108,16 @@ def x2cov(x1, x2, kernel):
     #           ...
     #         [bY0, aY1, ..., bYN],
 
+    if verbose:
+        print('constructing X1')
+        t0 = time.time()
+
     X1 = np.empty((n1*n2, ndim), dtype=float)
-    for ind in range(n1): # FIXME can I avoid this loop?
+    for ind in range(n1): # FIXME can I avoid this loop? it's not a big cost computationally...
         X1[ind*n2:(ind+1)*n2,:] = x1[ind,:]
+
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
 
     #---
 
@@ -134,13 +141,28 @@ def x2cov(x1, x2, kernel):
     #           ...
     #         [aX0, aX1, ..., aXN]]
 
+    if verbose:
+        print('constructing X2')
+        t0 = time.time()
+
     X2 = np.outer(np.ones(n1), x2).reshape((nsmp, ndim))
+
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
 
     #---
 
     # finally, compute the covariance
+
+    if verbose:
+        print('computing covariance matrix')
+        t0 = time.time()
+
     cov = kernel.cov(X1, X2)     # returns shape : Nsmp = n1*n2
     cov = cov.reshape((n1, n2))  # reshape to the desired input shape
+
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
 
     #---
 
@@ -148,17 +170,18 @@ def x2cov(x1, x2, kernel):
 
 #------------------------
 
-def condition(target_x, source_x, source_f, kernel, verbose=False):
+def condition(target_x, source_x, source_f, kernel, verbose=False, Verbose=False):
     """compute the mean and covariance of the function at target_x given the observations of the function \
 at source_f = f(source_x) using the kernel and a zero-mean prior prior.
 Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpml/chapters/RW.pdf
     """
+    verbose |= Verbose
 
     # compute the relevant blocks of the joint covariance matrix
     if verbose:
         print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
         t0 = time.time()
-    cov_tar_tar = x2cov(target_x, target_x, kernel)
+    cov_tar_tar = x2cov(target_x, target_x, kernel, verbose=Verbose)
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
 
@@ -167,7 +190,7 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
     if verbose:
         print('constructing %d x %d target-source covariance matrix'%(len(target_x), len(source_x)))
         t0 = time.time()
-    cov_tar_src = x2cov(target_x, source_x, kernel)
+    cov_tar_src = x2cov(target_x, source_x, kernel, verbose=Verbose)
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
 
@@ -176,7 +199,7 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
     if verbose:
         print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
         t0 = time.time()
-    cov_src_src = x2cov(source_x, source_x, kernel)
+    cov_src_src = x2cov(source_x, source_x, kernel, verbose=Verbose)
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
 
