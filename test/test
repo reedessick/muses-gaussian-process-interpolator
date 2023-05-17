@@ -6,6 +6,8 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
+import time
+
 import numpy as np
 
 import matplotlib
@@ -25,6 +27,7 @@ import mgpi
 
 path = '../etc/equation_of_state.csv.gz'
 print('loading data from : '+path)
+t0 = time.time()
 
 # load sample data
 data = np.genfromtxt(path, delimiter=',', names=True)
@@ -38,6 +41,7 @@ num = len(np.unique(baryon_chemical_potential))
 shape = (len(data)//num, num)
 
 print('    found data with shape :', shape)
+print('    time : %.6f sec' % (time.time()-t0))
 
 baryon_chemical_potential = baryon_chemical_potential.reshape(shape)
 temperature = temperature.reshape(shape)
@@ -63,6 +67,7 @@ print('    downselected data to shape :', np.shape(speed_of_sound))
 #     o o o o o
 
 print('formatting training and test sets')
+t0 = time.time()
 
 source_x = []
 source_f = []
@@ -93,10 +98,12 @@ target_x = np.concatenate(tuple(target_x))
 target_f = np.concatenate(tuple(target_f))
 
 print('    selected:\n        %d training points\n        %d test points'%(len(source_x), len(target_x)))
+print('    time : %.6f sec' % (time.time()-t0))
 
 #------------------------
 
 print('estimating appropriate hyperparameters and constructing kernel')
+t0 = time.time()
 
 # now, let's guess at appropriate hyperparameters
 ave = np.mean(source_f)       ### mean of the process
@@ -113,8 +120,10 @@ lengths = [                   ### based on the average grid spacing
 # construct a kernel
 kernel = mgpi.CombinedKernel(
     mgpi.SquaredExponentialKernel(sigma, *lengths),
-    mgpi.WhiteNoiseKernel(sigma/1000), # a small white noise component for numerical stability
+    mgpi.WhiteNoiseKernel(sigma/10), # a small white noise component for numerical stability
 )
+
+print('    time : %.6f sec' % (time.time()-t0))
 
 #------------------------
 
@@ -132,6 +141,7 @@ mean += ave ### add back in the mean that I substracted
 #-----------
 
 print('histogram the errors in the interpolator')
+t0 = time.time()
 
 fig = plt.figure(figsize=(8,4))
 
@@ -177,9 +187,13 @@ print('    saving : '+path)
 fig.savefig(path)
 plt.close(fig)
 
+print('    time : %.6f sec' % (time.time()-t0))
+
 #-----------
 
 # plot the distribution of errors across the function's domain
+
+t0 = time.time()
 
 # first, reshape the target data into something I can use
 target_bcp, target_tmp = np.transpose(target_x)
@@ -328,3 +342,5 @@ path = 'error-surface.png'
 print('    saving : '+path)
 fig.savefig(path)
 plt.close(fig)
+
+print('    time : %.6f sec' % (time.time()-t0))
