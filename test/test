@@ -37,9 +37,19 @@ DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('--time-execution', default=False, action='store_true')
 
+parser.add_argument('-t', '--tag', default='', type=str)
+parser.add_argument('--figtype', default=[], type=str, action='append')
+parser.add_argument('--dpi', default=200, type=float)
+
 args = parser.parse_args()
 
 args.verbose |= args.time_execution
+
+if args.tag:
+    args.tag = "_"+args.tag
+
+if not args.figtype:
+    args.figtype.append('png')
 
 #-------------------------------------------------
 
@@ -224,10 +234,12 @@ plt.subplots_adjust(
     wspace=0.15,
 )
 
-path = 'error-histograms.png'
-if args.verbose:
-    print('    saving : '+path)
-fig.savefig(path)
+tmp = 'error-histograms%s.' % args.tag
+for figtype in args.figtype:
+    path = tmp + figtype
+    if args.verbose:
+        print('    saving : '+path)
+    fig.savefig(path, dpi=args.dpi)
 plt.close(fig)
 
 if args.time_execution:
@@ -382,10 +394,12 @@ plt.subplots_adjust(
     wspace=0.20,
 )
 
-path = 'error-surface.png'
-if args.verbose:
-    print('    saving : '+path)
-fig.savefig(path)
+tmp = 'error-surface%s.' % args.tag
+for figtype in args.figtype:
+    path = tmp + figtype
+    if args.verbose:
+        print('    saving : '+path)
+    fig.savefig(path, dpi=args.dpi)
 plt.close(fig)
 
 if args.time_execution:
