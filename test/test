@@ -21,10 +21,18 @@ import mgpi
 
 #-------------------------------------------------
 
+DEFAULT_DOWNSAMPLE = 10
+
+#-------------------------------------------------
+
 parser = ArgumentParser()
 
 #path = '../etc/equation_of_state.csv.gz'
 parser.add_argument('eos_path', type=str)
+
+parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
+    help='downsample the input data to keep only 1 sample out of this many. \
+DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('--time-execution', default=False, action='store_true')
@@ -65,11 +73,10 @@ temperature = temperature.reshape(shape)
 speed_of_sound = speed_of_sound.reshape(shape)
 
 # now decimate the data so that the covariance matrices we build fit in memory
-downsample = 10
 
-baryon_chemical_potential = baryon_chemical_potential[::downsample, ::downsample]
-temperature = temperature[::downsample, ::downsample]
-speed_of_sound = speed_of_sound[::downsample, ::downsample]
+baryon_chemical_potential = baryon_chemical_potential[::args.downsample, ::args.downsample]
+temperature = temperature[::args.downsample, ::args.downsample]
+speed_of_sound = speed_of_sound[::args.downsample, ::args.downsample]
 
 if args.verbose:
     print('    downselected data to shape :', np.shape(speed_of_sound))
