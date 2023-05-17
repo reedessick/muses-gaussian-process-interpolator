@@ -120,7 +120,7 @@ lengths = [                   ### based on the average grid spacing
 # construct a kernel
 kernel = mgpi.CombinedKernel(
     mgpi.SquaredExponentialKernel(sigma, *lengths),
-    mgpi.WhiteNoiseKernel(sigma/10), # a small white noise component for numerical stability
+    mgpi.WhiteNoiseKernel(sigma/100), # a small white noise component for numerical stability
 )
 
 print('    time : %.6f sec' % (time.time()-t0))

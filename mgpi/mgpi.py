@@ -7,6 +7,8 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 import time
 
 import numpy as np
+from scipy.special import gamma
+from scipy.special import kv as bessel_k
 
 #-------------------------------------------------
 
@@ -38,6 +40,22 @@ class SquaredExponentialKernel(object):
         """expect x1, x2 to each have the shape : (Nsamp, Ndim)
         """
         return self.sigma**2 * np.exp(-np.sum((x1-x2)**2/self.lengths**2, axis=1))
+
+class MaternKernel(object):
+    """a Matern covariance kernel: https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
+    """
+
+    def __init__(self, sigma, order, *lengths):
+        self.sigma = sigma
+        self.order = order
+        self.lengths = np.array(lengths)
+
+    def cov(self, x1, x2):
+        """exect x1, x2 to each have the shape : (Nsamp, Ndim)
+        """
+        o = self.order
+        diff = (2*o)**0.5 * np.sum((x1-x2)**2/self.length**2, axis=1)**0.5
+        return self.sigma**2 * (2**(1-o) / gamma(o)) * diff**o * bessel_k(o, diff)
 
 #------------------------
 
@@ -128,68 +146,71 @@ def x2cov(x1, x2, kernel):
 
     return cov
 
+#------------------------
+
 def condition(target_x, source_x, source_f, kernel, verbose=False):
     """compute the mean and covariance of the function at target_x given the observations of the function \
 at source_f = f(source_x) using the kernel and a zero-mean prior prior.
 Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpml/chapters/RW.pdf
     """
+
     # compute the relevant blocks of the joint covariance matrix
     if verbose:
         print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
         t0 = time.time()
-
     cov_tar_tar = x2cov(target_x, target_x, kernel)
-
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
 
     if verbose:
         print('constructing %d x %d target-source covariance matrix'%(len(target_x), len(source_x)))
         t0 = time.time()
-
     cov_tar_src = x2cov(target_x, source_x, kernel)
-
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
 
     if verbose:
         print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
         t0 = time.time()
-
     cov_src_src = x2cov(source_x, source_x, kernel)
-
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
 
     # invert this covariance only once
     if verbose:
         print('inverting source-source covariance matrix')
         t0 = time.time()
-
     inv_cov_src_src = np.linalg.inv(cov_src_src)
-
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0)) 
+
+    #---
 
     # compute the mean
     if verbose:
         print('computing conditioned mean')
         t0 = time.time()
-
     mean = cov_tar_src @ inv_cov_src_src @ source_f
-
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
 
     # compute the covariance
     if verbose:
         print('computing conditioned covariance')
         t0 = time.time()
-
     cov = cov_tar_tar - cov_tar_src @ inv_cov_src_src @ np.transpose(cov_tar_src)
-
     if verbose:
         print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
 
     # return
     return mean, cov
