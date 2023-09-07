@@ -6,6 +6,7 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
+import os
 import time
 
 import numpy as np
@@ -39,6 +40,9 @@ DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 igroup.add_argument('-d', '--dependent-column', type=str, required=True,
     help='the dependent column predicted by the Gaussian process (ie, "f" in f(x, y, z)). \
 We only support scalar output from the Gaussian process.')
+
+### FIXME : also include parameters that describe the grid over which we make predictions
+
 igroup.add_argument('-i', '--independent-column', default=[], type=str, action='append', required=True,
     help='one of the independent columns used within the Gaussian process (ie, "x", "y", or "z" in f(x, y, z)). \
 We can support multi-variate input to the Gaussian process. As such, this option can be repeated.')
