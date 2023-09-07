@@ -12,9 +12,24 @@ from scipy.special import kv as bessel_k
 
 #-------------------------------------------------
 
-### simple kernels
+### classes to represent simple kernels
 
-class WhiteNoiseKernel(object):
+class Kernel(object):
+    """a parent class that defines the API for all kernel objects
+    """
+
+    def __init__(self, *params):
+        self.params = params
+
+    def update(self, **params):
+        raise NotImplementedError
+
+    def cov(self, x1, x2):
+        raise NotImplementedError
+
+#------------------------
+
+class WhiteNoiseKernel(Kernel):
     """a simple white-noise kernel:
     cov[f(x1), f(x2)] = sigma**2 * delta(x1-x2)
     """
@@ -27,7 +42,7 @@ class WhiteNoiseKernel(object):
         """
         return self.sigma**2 * np.all(x1 == x2, axis=1)
 
-class SquaredExponentialKernel(object):
+class SquaredExponentialKernel(Kernel):
     """a simple Squared-Exponential kernel:
     cov[f(x1), f(x2)] = sigma**2 * exp(-(x1-x2)**2/length**2)
     """
@@ -41,7 +56,7 @@ class SquaredExponentialKernel(object):
         """
         return self.sigma**2 * np.exp(-np.sum((x1-x2)**2/self.lengths**2, axis=1))
 
-class MaternKernel(object):
+class MaternKernel(Kernel):
     """a Matern covariance kernel: https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
     """
 
@@ -59,6 +74,8 @@ class MaternKernel(object):
 
 #------------------------
 
+### a class to represent a mixture over kernels
+
 class CombinedKernel(object):
     """an object that represent the sum of multiple kernels
     """
@@ -71,6 +88,131 @@ class CombinedKernel(object):
         for kernel in self.kernels:
             ans += kernel.cov(*args, **kwargs)
         return ans
+
+#-------------------------------------------------
+
+### classes to perform interpolation based on kernels
+
+class Interpolator(object):
+    """an object that can perform GP regression
+    """
+
+    def __init__(self, kernel):
+        self.kernel = kernel
+
+    def condition(self, target_x, source_x, source_f):
+        raise NotImplementedError
+
+    def loglikelihood(self, source_x, source_f):
+        raise NotImplementedError
+
+    def optimize_kernel(self, source_x, source_f):
+        raise NotImplementedError
+
+    def sample_kernel(self, source_x, source_f):
+        raise NotImplementedError
+
+    def rvs(self, target_x, source_x, source_f, size=1):
+        raise NotImplementedError
+
+    def _rvs_from_conditioned(mean, cov):
+        raise NotImplementedError
+
+#------------------------
+
+class DefaultInterpolator(Interpolator):
+    """implements the default GP regression without assuming anything special about matrix inversion
+    """
+
+'''
+def condition(target_x, source_x, source_f, kernel, verbose=False, Verbose=False):
+    """compute the mean and covariance of the function at target_x given the observations of the function \
+at source_f = f(source_x) using the kernel and a zero-mean prior prior.
+Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpml/chapters/RW.pdf
+    """
+    verbose |= Verbose
+
+    # compute the relevant blocks of the joint covariance matrix
+    if verbose:
+        print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
+        t0 = time.time()
+    cov_tar_tar = x2cov(target_x, target_x, kernel, verbose=Verbose)
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
+
+    if verbose:
+        print('constructing %d x %d target-source covariance matrix'%(len(target_x), len(source_x)))
+        t0 = time.time()
+    cov_tar_src = x2cov(target_x, source_x, kernel, verbose=Verbose)
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
+
+    if verbose:
+        print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
+        t0 = time.time()
+    cov_src_src = x2cov(source_x, source_x, kernel, verbose=Verbose)
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
+
+    # invert this covariance only once
+    if verbose:
+        print('inverting source-source covariance matrix')
+        t0 = time.time()
+    inv_cov_src_src = np.linalg.inv(cov_src_src)
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
+
+    # compute the mean
+    if verbose:
+        print('computing conditioned mean')
+        t0 = time.time()
+    mean = cov_tar_src @ inv_cov_src_src @ source_f
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
+
+    # compute the covariance
+    if verbose:
+        print('computing conditioned covariance')
+        t0 = time.time()
+    cov = cov_tar_tar - cov_tar_src @ inv_cov_src_src @ np.transpose(cov_tar_src)
+    if verbose:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+    #---
+
+    # return
+    return mean, cov
+
+### optimization to find the best parameters for the kernel
+
+def log_likelihood(source_x, source_f, kernel):
+    """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
+    """
+    cov_src_src = kernel.cov(source_x, source_x)
+    s, logdet = np.linalg.slogdet(cov_src_src)
+    assert s > 0, 'covariance is not positive definite!'
+
+    # compute the log-likelihood
+    return -0.5 * source_f @ np.linalg.inv(cov_src_src) @ source_f \
+        - 0.5*logdet - 0.5*len(source_f)*np.log(2*np.pi)
+'''
+
+#------------------------
+
+class NearestNeighborInterpolator(Interpolator):
+    """implements a NearestNeighbor Gaussian Process, which induces a sparse covariance matrix and allows for \
+matrix inversion in linear time
+    """
 
 #-------------------------------------------------
 
@@ -167,88 +309,3 @@ def x2cov(x1, x2, kernel, verbose=False):
     #---
 
     return cov
-
-#------------------------
-
-def condition(target_x, source_x, source_f, kernel, verbose=False, Verbose=False):
-    """compute the mean and covariance of the function at target_x given the observations of the function \
-at source_f = f(source_x) using the kernel and a zero-mean prior prior.
-Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpml/chapters/RW.pdf
-    """
-    verbose |= Verbose
-
-    # compute the relevant blocks of the joint covariance matrix
-    if verbose:
-        print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
-        t0 = time.time()
-    cov_tar_tar = x2cov(target_x, target_x, kernel, verbose=Verbose)
-    if verbose:
-        print('    time : %.6f sec' % (time.time()-t0))
-
-    #---
-
-    if verbose:
-        print('constructing %d x %d target-source covariance matrix'%(len(target_x), len(source_x)))
-        t0 = time.time()
-    cov_tar_src = x2cov(target_x, source_x, kernel, verbose=Verbose)
-    if verbose:
-        print('    time : %.6f sec' % (time.time()-t0))
-
-    #---
-
-    if verbose:
-        print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
-        t0 = time.time()
-    cov_src_src = x2cov(source_x, source_x, kernel, verbose=Verbose)
-    if verbose:
-        print('    time : %.6f sec' % (time.time()-t0))
-
-    #---
-
-    # invert this covariance only once
-    if verbose:
-        print('inverting source-source covariance matrix')
-        t0 = time.time()
-    inv_cov_src_src = np.linalg.inv(cov_src_src)
-    if verbose:
-        print('    time : %.6f sec' % (time.time()-t0)) 
-
-    #---
-
-    # compute the mean
-    if verbose:
-        print('computing conditioned mean')
-        t0 = time.time()
-    mean = cov_tar_src @ inv_cov_src_src @ source_f
-    if verbose:
-        print('    time : %.6f sec' % (time.time()-t0))
-
-    #---
-
-    # compute the covariance
-    if verbose:
-        print('computing conditioned covariance')
-        t0 = time.time()
-    cov = cov_tar_tar - cov_tar_src @ inv_cov_src_src @ np.transpose(cov_tar_src)
-    if verbose:
-        print('    time : %.6f sec' % (time.time()-t0))
-
-    #---
-
-    # return
-    return mean, cov
-
-#-------------------------------------------------
-
-### optimization to find the best parameters for the kernel
-
-def log_likelihood(source_x, source_f, kernel):
-    """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
-    """
-    cov_src_src = kernel.cov(source_x, source_x)
-    s, logdet = np.linalg.slogdet(cov_src_src)
-    assert s > 0, 'covariance is not positive definite!'
-
-    # compute the log-likelihood
-    return -0.5 * source_f @ np.linalg.inv(cov_src_src) @ source_f \
-        - 0.5*logdet - 0.5*len(source_f)*np.log(2*np.pi)
