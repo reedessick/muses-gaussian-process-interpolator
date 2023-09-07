@@ -120,8 +120,8 @@ class Interpolator(object):
 
 #------------------------
 
-class DefaultInterpolator(Interpolator):
-    """implements the default GP regression without assuming anything special about matrix inversion
+class GeneralInterpolator(Interpolator):
+    """implements the most general Gaussian Process regression without assuming anything special about matrix inversion
     """
 
 '''
