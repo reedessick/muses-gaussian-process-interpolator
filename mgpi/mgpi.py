@@ -22,10 +22,15 @@ class Kernel(object):
         self.params = params
 
     def update(self, **params):
-        raise NotImplementedError
+        """update the internal parameters that describe this kernel
+        """
+        raise NotImplementedError('this should be implemented here and inherited by all child classes')
 
     def cov(self, x1, x2):
-        raise NotImplementedError
+        """compute the covariance between vectors x1 and x2 given the internal parameters of this kernel. \
+This will return a matrix with shape (len(x1), len(x2))
+        """
+        raise NotImplementedError('this should be overwritten by child classes')
 
 #------------------------
 
@@ -83,7 +88,15 @@ class CombinedKernel(object):
     def __init__(self, *kernels):
         self.kernels = kernels
 
+    def update(self, **params):
+        """update each kernel in turn
+        """
+        for k in self.kernels:
+            k.update(**params)
+
     def cov(self, *args, **kwargs):
+        """iterate over contained kernels and sum the corresponding covariances
+        """
         ans = 0.0
         for kernel in self.kernels:
             ans += kernel.cov(*args, **kwargs)
@@ -101,27 +114,43 @@ class Interpolator(object):
         self.kernel = kernel
 
     def condition(self, target_x, source_x, source_f):
-        raise NotImplementedError
+        """compute the mean and covariance for the function f at target_x conditioned on the values \
+of the function source_f at source_x
+        """
+        raise NotImplementedError('should be overwritten by child classes')
 
     def loglikelihood(self, source_x, source_f):
-        raise NotImplementedError
+        """compute the likelihood of observing the function source_f at source_x
+        """
+        raise NotImplementedError('should be overwritten by child classes')
 
     def optimize_kernel(self, source_x, source_f):
-        raise NotImplementedError
+        """find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f)
+        """
+        raise NotImplementedError('should be overwritten by child classes')
 
     def sample_kernel(self, source_x, source_f):
-        raise NotImplementedError
+        """sample the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
+        """
+        raise NotImplementedError('should be overwritten by child classes')
 
     def rvs(self, target_x, source_x, source_f, size=1):
-        raise NotImplementedError
+        """return realizations of the process for f at target_x conditioned on the values of the function \
+source_f at source_x
+        """
+        return self._rvs_from_conditioned(*self.condition(target_x, source_x, source_f), size=size)
 
-    def _rvs_from_conditioned(mean, cov):
-        raise NotImplementedError
+    def _rvs_from_conditioned(mean, cov, size=1):
+        """a helper function that draws realizations from a multivariate distribution defined by \
+a mean function and a covariance matrix
+        """
+        raise NotImplementedError('should be overwritten by child classes')
 
 #------------------------
 
 class GeneralInterpolator(Interpolator):
-    """implements the most general Gaussian Process regression without assuming anything special about matrix inversion
+    """implements the most general Gaussian Process regression without assuming anything special \
+about the structure of the covariance matrix or mean function
     """
 
 '''
