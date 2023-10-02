@@ -164,6 +164,9 @@ kernel = mgpi.CombinedKernel(
     mgpi.WhiteNoiseKernel(sigma/100), # a small white noise component for numerical stability
 )
 
+# construct a general interpolator
+interpolator = mgpi.Interpolator(kernel)
+
 if args.time_execution:
     print('    time : %.6f sec' % (time.time()-t0))
 
@@ -173,11 +176,10 @@ if args.verbose:
     print('computing interpolation estimate')
 
 # now let's compute estimates of the speed of sound at the test points
-mean, cov = mgpi.condition(
+mean, cov = interpolator.condition(
     target_x,
     source_x,
     source_f - ave,
-    kernel,
     verbose=args.verbose,
     Verbose=args.time_execution,
 )
