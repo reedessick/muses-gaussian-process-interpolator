@@ -305,10 +305,10 @@ a mean function and a covariance matrix
 
     #--------------------
 
-    def loglikelihood(self, source_x, source_f):
+    def loglikelihood(self, source_x, source_f, verbose=False):
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
         """
-        cov_src_src = self.kernel.cov(source_x, source_x)
+        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
         s, logdet = np.linalg.slogdet(cov_src_src)
         assert s > 0, 'covariance is not positive definite!'
 
