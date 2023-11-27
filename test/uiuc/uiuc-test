@@ -151,7 +151,8 @@ ave = np.mean(source_f)       ### mean of the process
 
 ### FIXME! pick these based on maximizing the marginal likelihood for (source_f, source_x)
 
-sigma = np.std(source_f) * 2  ### variance based on spread of the function
+#sigma = np.std(source_f) * 2  ### variance based on spread of the function
+sigma = np.std(source_f) * 0.5  ### variance based on spread of the function
 
 lengths = [                   ### based on the average grid spacing
     2 * np.mean(np.diff(baryon_chemical_potential[0,:])),
