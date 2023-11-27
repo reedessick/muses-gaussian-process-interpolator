@@ -21,7 +21,7 @@ import mgpi
 
 #-------------------------------------------------
 
-DEFAULT_DOWNSAMPLE = 10
+DEFAULT_DOWNSAMPLE = 1
 
 #-------------------------------------------------
 
@@ -70,6 +70,7 @@ baryon_chemical_potential = data['muB_MeV']
 temperature = data['T_MeV']
 speed_of_sound = data['speed_of_sound']
 
+### reshape
 num = len(np.unique(baryon_chemical_potential))
 shape = (len(data)//num, num)
 
@@ -82,7 +83,15 @@ baryon_chemical_potential = baryon_chemical_potential.reshape(shape)
 temperature = temperature.reshape(shape)
 speed_of_sound = speed_of_sound.reshape(shape)
 
-# now decimate the data so that the covariance matrices we build fit in memory
+### throw away the boring part of the EoS
+
+keep = temperature[:,0] <= 300
+
+baryon_chemical_potential = baryon_chemical_potential[keep,:]
+temperature = temperature[keep,:]
+speed_of_sound = speed_of_sound[keep,:]
+
+### now decimate the data so that the covariance matrices we build fit in memory
 
 baryon_chemical_potential = baryon_chemical_potential[::args.downsample, ::args.downsample]
 temperature = temperature[::args.downsample, ::args.downsample]
@@ -151,18 +160,17 @@ ave = np.mean(source_f)       ### mean of the process
 
 ### FIXME! pick these based on maximizing the marginal likelihood for (source_f, source_x)
 
-#sigma = np.std(source_f) * 2  ### variance based on spread of the function
-sigma = np.std(source_f) * 0.5  ### variance based on spread of the function
+sigma = np.std(source_f) * 1.0  ### variance based on spread of the function
 
 lengths = [                   ### based on the average grid spacing
-    2 * np.mean(np.diff(baryon_chemical_potential[0,:])),
-    2 * np.mean(np.diff(temperature[:,0])),
+    np.mean(np.diff(baryon_chemical_potential[0,:])) * 2.0,
+    np.mean(np.diff(temperature[:,0])) * 1.0,
 ]
 
 # construct a kernel
 kernel = mgpi.CombinedKernel(
     mgpi.SquaredExponentialKernel(sigma, *lengths),
-    mgpi.WhiteNoiseKernel(sigma/100), # a small white noise component for numerical stability
+    mgpi.WhiteNoiseKernel(sigma/1000), # a small white noise component for numerical stability
 )
 
 # construct a general interpolator
@@ -344,7 +352,7 @@ ax.tick_params(
 cb = plt.colorbar(mappable)
 
 # absolute error
-ax = plt.subplot(2,2,3)
+ax = plt.subplot(2,3,4)
 mappable = ax.imshow(
     mean - target_f,
     extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
@@ -365,8 +373,30 @@ ax.tick_params(
 
 cb = plt.colorbar(mappable)
 
+# relative error
+ax = plt.subplot(2,3,5)
+mappable = ax.imshow(
+    np.log10(np.abs(mean - target_f) / target_f),
+    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
+    aspect='auto',
+    origin='lower',
+)
+ax.set_xlabel('$\mu_B\,[\mathrm{MeV}]$')
+plt.setp(ax.get_yticklabels(), visible=False)
+ax.set_title('$\log_{10}\left[|E[f(x)] - f(x)|/f(x)\\right]$')
+ax.tick_params(
+    left=True,
+    right=True,
+    top=True,
+    bottom=True,
+    which='both',
+    direction='in',
+)
+
+cb = plt.colorbar(mappable)
+
 # scaled error
-ax = plt.subplot(2,2,4)
+ax = plt.subplot(2,3,6)
 mappable = ax.imshow(
     (mean - target_f) / stdv,
     extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
