@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+
+"""a simple test of the interpolator
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import time
+
+import numpy as np
+import h5py
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+from argparse import ArgumentParser
+
+### non-standard libraries
+import mgpi
+
+#-------------------------------------------------
+
+DEFAULT_DOWNSAMPLE = 10
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+#path = '../etc/equation_of_state.csv.gz'
+parser.add_argument('eos_path', type=str)
+
+parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
+    help='downsample the input data to keep only 1 sample out of this many. \
+DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+parser.add_argument('--time-execution', default=False, action='store_true')
+
+parser.add_argument('-t', '--tag', default='', type=str)
+parser.add_argument('--figtype', default=[], type=str, action='append')
+parser.add_argument('--dpi', default=200, type=float)
+
+args = parser.parse_args()
+
+args.verbose |= args.time_execution
+
+if args.tag:
+    args.tag = "_"+args.tag
+
+if not args.figtype:
+    args.figtype.append('png')
+
+#-------------------------------------------------
+
+# build an interpolator over finite-temperature EoS tables
+# these tables are regularly spaced in
+#   rho [g/cm^3]
+#   temp [MeV]
+#   ye
+# and contain values for various thermodynamic quantities at each grid point
+#   logenergy [erg/g]
+#   logpress [dynes/cm^2]
+
+if args.verbose:
+    print('loading data from : '+args.eos_path)
+    if args.time_execution:
+        t0 = time.time()
+
+with h5py.File(args.eos_path, 'r') as obj:
+
+    # read in the values that define the table
+    ye = obj['ye'][:]          # electron fraction
+    logr = obj['logrho'][:]    # log of baryon density
+    logt = obj['logtemp'][:]   # log of the temperature
+
+    # read in the variable(s) evaluated at each point in the table
+    loge = obj['logenergy'][:] # log of the energy density
+
+if args.verbose:
+    print('    found data with shape')
+    print('        ye : %d' % len(ye))
+    print('        logr : %d' % len(logr))
+    print('        logt : %d' % len(logt))
+    print('        loge : %s' % np.shape(loge))
+
+# downsample the data so that the covariance matrix we build fits in memory
+ye = ye[::args.downsample]
+logr = logr[::args.downsample]
+logt = logt[::args.downsample]
+
+loge = loge[::args.downsample, ::args.downsample, ::args.downsample]
+
+if args.verbose:
+    print('    downselected data to shape')
+    print('        loge : %s' % np.shape(loge))
+
+# now cast the grid into the appropriate shape
+ye, logr, logt = np.meshgrid(ye, logr, logt, indexing='ij')
+
+if args.verbose:
+    if args.time_execution:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+#-------------------------------------------------
+
+### set up the grid onto which we will interpolate data
+
+if args.verbose:
+    print('generating regular grid onto which we will interpolate the data')
+    if args.time_execution:
+        t0 = time.time()
+
+raise NotImplementedError('''
+define the regular grid onto which we want to interpolate the data
+''')
+
+if args.verbose:
+    if args.time_execution:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+#------------------------
+
+if args.verbose:
+    print('estimating appropriate hyperparameters and constructing kernel')
+    if args.time_execution:
+        t0 = time.time()
+
+raise NotImplementedError('''
+
+# now, let's guess at appropriate hyperparameters
+ave = np.mean(source_f)       ### mean of the process
+
+### FIXME! pick these based on maximizing the marginal likelihood for (source_f, source_x)
+
+sigma = np.std(source_f) * 2  ### variance based on spread of the function
+
+lengths = [                   ### based on the average grid spacing
+    2 * np.mean(np.diff(baryon_chemical_potential[0,:])),
+    2 * np.mean(np.diff(temperature[:,0])),
+]
+''')
+
+# construct a kernel
+kernel = mgpi.CombinedKernel(
+    mgpi.SquaredExponentialKernel(sigma, *lengths),
+    mgpi.WhiteNoiseKernel(sigma/100), # a small white noise component for numerical stability
+)
+
+# construct a general interpolator
+interpolator = mgpi.Interpolator(kernel)
+
+if args.time_execution:
+    print('    time : %.6f sec' % (time.time()-t0))
+
+#------------------------
+
+if args.verbose:
+    print('computing interpolation estimate')
+
+# now let's compute estimates of the speed of sound at the test points
+mean, cov = interpolator.condition(
+    target_x,
+    source_x,
+    source_f - ave,
+    verbose=args.verbose,
+    Verbose=args.time_execution,
+)
+mean += ave ### add back in the mean that I substracted
+
+#-------------------------------------------------
+
+# write the interpolated data to disk
+
+raise NotImplementedError('''
+follow roughly the same HDF format as the input file
+''')
