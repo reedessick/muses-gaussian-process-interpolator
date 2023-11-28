@@ -99,7 +99,7 @@ if args.verbose:
     print('        ye : %d' % len(ye))
     print('        logr : %d' % len(logr))
     print('        logt : %d' % len(logt))
-    print('        loge : %s' % np.shape(loge))
+    print('        loge : %s' % (np.shape(loge),))
 
 # downsample the data so that the covariance matrix we build fits in memory
 ye = ye[::args.downsample]
@@ -108,14 +108,14 @@ logt = logt[::args.downsample]
 
 loge = loge[::args.downsample, ::args.downsample, ::args.downsample]
 
-old_x = np.transpose([ye.flatten(), logr.flatten(), loge.flatten()]) # format the data for interpolator
-
 if args.verbose:
     print('    downselected data to shape')
-    print('        loge : %s' % np.shape(loge))
+    print('        loge : %s' % (np.shape(loge),))
 
 # now cast the grid into the appropriate shape
 ye, logr, logt = np.meshgrid(ye, logr, logt, indexing='ij')
+
+old_x = np.transpose([ye.flatten(), logr.flatten(), loge.flatten()]) # format the data for interpolator
 
 if args.verbose:
     if args.time_execution:
@@ -173,7 +173,7 @@ new_ye = np.linspace(*args.ye_range, args.ye_num_points)
 new_logr = np.linspace(*np.log(args.baryon_density_range), args.baryon_density_num_points)
 new_loge = np.linspace(*np.log(args.energy_density_range), args.energy_density_num_points)
 
-new = np.transpose([_.flatten() for _ in np.meshgrid(new_ye, new_logr, new_loge, indexing='ij')])
+new_x = np.transpose([_.flatten() for _ in np.meshgrid(new_ye, new_logr, new_loge, indexing='ij')])
 
 if args.time_execution:
     print('    time : %.6f sec' % (time.time()-t0))
@@ -189,7 +189,7 @@ if args.verbose:
 mean, cov = interpolator.condition(
     new_x,
     old_x,
-    logt - ave,
+    logt.flatten() - ave,
     verbose=args.verbose,
     Verbose=args.time_execution,
 )
@@ -202,38 +202,8 @@ if args.time_execution:
 
 if args.verbose:
     print('computing the key vector needed for future predictions')
-    print('    constructing %d x %d source-source covariance matrix'%(len(old_x), len(old_x)))
-    if args.time_execution:
-        t0 = time.time()
 
-cov = interpolator._x2cov(old_x, old_x, interpolator.kernel, verbose=args.time_execution)
-
-if args.time_execution:
-    print('        time : %.6f sec' % (time.time()-t0))
-
-#---
-
-if args.verbose:
-    print('    inverting source-source covariance matrix')
-    if args.time_execution:
-        t0 = time.time()
-
-inv_cov = np.linalg.inv(cov)
-
-if args.time_execution:
-    print('        time : %.6f sec' % (time.time()-t0))
-
-#---
-
-if args.verbose:
-    print('    computing contraction')
-    if args.time_execution:
-        t0 = time.time()
-
-compressed = inv_cov @ (logt - ave)
-
-if args.time_execution:
-    print('        time : %.6f sec' % (time.time()-t0))
+compressed = interpolator.compress(old_x, logt.flatten()-ave, verbose=args.time_execution)
 
 #-------------------------------------------------
 
@@ -254,6 +224,7 @@ with h5py.File(args.outpath, 'w') as obj:
     grp.create_dataset('logtemp', data=logt)
 
     # store the compressed representation of this data
+    grp.create_dataset('compressed_x', data=old_x)
     grp.create_dataset('compressed', data=compressed)
     grp.create_dataset('ave', data=ave)
 
