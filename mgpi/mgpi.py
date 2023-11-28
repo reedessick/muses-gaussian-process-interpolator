@@ -118,6 +118,73 @@ about the structure of the covariance matrix or mean function
 
     #--------------------
 
+    # utilities for representing the mean of the conditioned process efficiently
+
+    def compress(self, source_x, source_f, verbose=False, Verbose=False):
+        """compress the GP mean prediction into a single array of the same length as the training set
+    return inv(Cov(source_x, source_x)) @ source_f
+        """
+
+        if verbose:
+            print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
+            t0 = time.time()
+        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        # invert this covariance only once
+        if verbose:
+            print('inverting source-source covariance matrix')
+            t0 = time.time()
+        inv_cov_src_src = np.linalg.inv(cov_src_src)
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        # compute the contraction that can be used to compute the mean
+        if verbose:
+            print('compressing observations')
+            t0 = time.time()
+        compressed = inv_cov_src_src @ source_f
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        return compressed
+
+    def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
+        """used the compressed representation of the training data to predict the mean at target_x
+        """
+
+        if verbose:
+            print('constructing %d x %d target-source covariance matrix'%(len(target_x), len(source_x)))
+            t0 = time.time()
+        cov_tar_src = self._x2cov(target_x, source_x, self.kernel, verbose=Verbose)
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        # compute the mean
+        if verbose:
+            print('computing conditioned mean')
+            t0 = time.time()
+        mean = cov_tar_src @ compressed
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        return mean
+
+    #--------------------
+
+    # general utilities for full GP regression
+
     def condition(self, target_x, source_x, source_f, verbose=False, Verbose=False):
         """compute the mean and covariance of the function at target_x given the observations of the function \
 at source_f = f(source_x) using the kernel and a zero-mean prior prior.
@@ -283,6 +350,8 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
 
     #--------------------
 
+    # utilities for drawing samples from the GP model
+
     def rvs(self, target_x, source_x, source_f, size=1):
         """return realizations of the process for f at target_x conditioned on the values of the function \
 source_f at source_x
@@ -304,6 +373,8 @@ a mean function and a covariance matrix
         return mean + rands
 
     #--------------------
+
+    # utilities for determining good hyperparameters for the model
 
     def loglikelihood(self, source_x, source_f, verbose=False):
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
