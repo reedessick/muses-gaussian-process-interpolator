@@ -22,6 +22,7 @@ import mgpi
 #-------------------------------------------------
 
 DEFAULT_DOWNSAMPLE = 1
+DEFAULT_MAX_TEMPERATURE = 400.0
 
 #-------------------------------------------------
 
@@ -29,6 +30,10 @@ parser = ArgumentParser()
 
 #path = '../etc/equation_of_state.csv.gz'
 parser.add_argument('eos_path', type=str)
+
+parser.add_argument('--max-temperature', default=DEFAULT_MAX_TEMPERATURE, type=float,
+    help='only consider data below this temperature. Should be specified in MeV. \
+DEFAULT=%.3f MeV' % DEFAULT_MAX_TEMPERATURE)
 
 parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
     help='downsample the input data to keep only 1 sample out of this many. \
@@ -85,11 +90,15 @@ speed_of_sound = speed_of_sound.reshape(shape)
 
 ### throw away the boring part of the EoS
 
-keep = temperature[:,0] <= 300
+keep = temperature[:,0] <= args.max_temperature
 
 baryon_chemical_potential = baryon_chemical_potential[keep,:]
 temperature = temperature[keep,:]
 speed_of_sound = speed_of_sound[keep,:]
+
+if args.verbose:
+    print('    downselected data to temperatures below %.3f MeV; retained shape : %s' % \
+        (args.max_temperature, np.shape(speed_of_sound)))
 
 ### now decimate the data so that the covariance matrices we build fit in memory
 
@@ -98,7 +107,7 @@ temperature = temperature[::args.downsample, ::args.downsample]
 speed_of_sound = speed_of_sound[::args.downsample, ::args.downsample]
 
 if args.verbose:
-    print('    downselected data to shape :', np.shape(speed_of_sound))
+    print('    further downselected data to shape :', np.shape(speed_of_sound))
 
 #------------------------
 
@@ -160,11 +169,11 @@ ave = np.mean(source_f)       ### mean of the process
 
 ### FIXME! pick these based on maximizing the marginal likelihood for (source_f, source_x)
 
-sigma = np.std(source_f) * 1.0  ### variance based on spread of the function
+sigma = np.std(source_f) * 1.5  ### variance based on spread of the function
 
 lengths = [                   ### based on the average grid spacing
     np.mean(np.diff(baryon_chemical_potential[0,:])) * 2.0,
-    np.mean(np.diff(temperature[:,0])) * 1.0,
+    np.mean(np.diff(temperature[:,0])) * 2.0,
 ]
 
 # construct a kernel
