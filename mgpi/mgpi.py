@@ -1,14 +1,18 @@
 """utility functions for constructing and using Gaussian Processes to interpolate tabular data
 """
-__author__ = "Reed Essick (reed.essick@gmail.com)"
+__author__ = "Reed Essick (reed.essick@gmail.com), Ziyuan Zhang (ziyuan.z@wustl.edu)"
 
 #-------------------------------------------------
 
 import time
 
+
 import numpy as np
 from scipy.special import gamma
 from scipy.special import kv as bessel_k
+from scipy.optimize import minimize
+
+import emcee
 
 #-------------------------------------------------
 
@@ -400,6 +404,252 @@ a mean function and a covariance matrix
         """sample the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
         """
         raise NotImplementedError('should be overwritten by child classes')
+
+
+
+class SampleKernel(Interpolator):
+    '''A child class of Interpolator that
+       samples the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
+    
+    Member data:
+        self.source_x
+        self.source_f
+    
+    Methods:
+        negative_log_prior
+        negative_log_posterior
+        negative_log_likelihood
+        sample_kernel: use MCMC to sample kernel parameters.
+    
+    '''
+    def __init__(self, kernel, source_x, source_f):
+        super().__init__(kernel)
+        # since emcee.EnsembleSampler requires that 
+        # negative_log_likelihood can only take 1 input
+        # I put source_x and source_f into constructor
+        self.source_x = source_x
+        self.source_f = source_f
+
+    def negative_log_prior(self, params):
+        '''define the log prior.'''
+        
+        # requires all params to be positive
+        are_all_positive = all(x > 0 for x in params)
+        if are_all_positive:
+            return 0
+        else:
+            return -np.inf
+
+
+    def negative_log_posterior(self, params):
+        '''define the log posterior. log_posterior = log_likelihood + log_prior'''
+
+        neg_log_prior = self.negative_log_prior(params)
+    
+        if not np.isfinite(neg_log_prior):
+            return -np.inf
+        else:
+            return self.negative_log_likelihood(params) + neg_log_prior
+
+
+    def negative_log_likelihood(self, params):
+        '''negative log likelihood to be minimized. Inherit from the Interpolator class'''
+
+        sigma, *lengths = params
+
+        # FIX!!! temporarily use squaredExp + noise
+        # each time params change, need to construct a new kernel
+        # what is a correct way of inputting kernels???
+
+        # construct a kernel
+        kernel = CombinedKernel(
+            SquaredExponentialKernel(sigma, *lengths),
+            WhiteNoiseKernel(sigma/100),
+        )
+
+        cov_src_src = self._x2cov(self.source_x, self.source_x, kernel)
+        s, logdet = np.linalg.slogdet(cov_src_src)
+        assert s > 0, 'covariance is not positive definite!'
+
+        # compute the log-likelihood
+        return -0.5 * self.source_f @ np.linalg.inv(cov_src_src) @ self.source_f \
+            - 0.5*logdet - 0.5*len(self.source_f)*np.log(2*np.pi)
+
+    
+    def sample_kernel(self, init_para, burn_in=100, nsteps=100, nwalkers=None):
+        """
+        Sample the kernel parameters from a distribution defined by loglikelihood using MCMC.
+
+        :param init_para: List of initial guess for parameters, [sigma, length 1, length 2, etc.]
+        :param nwalkers: Number of walkers for the MCMC sampler
+        :param nsteps: Number of steps to run the MCMC sampler
+        :param burn_in: Number of burn-in steps for the MCMC sampler
+        :return: Array of sampled parameters
+        """
+
+        # initial parameters
+        n_dim = len(init_para)
+        if nwalkers is None:
+            nwalkers = 2*n_dim
+            # print("check point 1")
+            # print("nwalkers = ", nwalkers)
+
+        # Initialize walkers
+        bounds = [(param - param / 8, param + param / 8) for param in init_para]
+
+        walkers = np.array([np.random.uniform(low, high, nwalkers) for low, high in bounds]).T
+        # print("walkers: ")
+        # print(walkers)
+
+        # give sampler negative_log_posterior
+        sampler = emcee.EnsembleSampler(nwalkers, n_dim, self.negative_log_posterior)
+
+        # burn-in steps
+        print('running MCMC burn-in with {:d} steps'.format(burn_in))
+        start = time.time()
+        state = sampler.run_mcmc(walkers, burn_in)
+        sampler.reset()
+        end = time.time()
+        print('    time : %.6f sec' % (end - start))
+
+        # Reset and run the main MCMC sampling
+        # at each step, calculate the log posterior at 
+        # the current position and the new position
+        # update or not using Metropolis-Hastings
+        print('running MCMC sampling with {:d} steps'.format(nsteps))
+        start = time.time()
+        sampler.run_mcmc(state, nsteps)
+        end = time.time()
+        print('    time : %.6f sec' % (end - start))
+
+        # Extract samples
+        samples = sampler.get_chain(flat=True)
+
+        print("Mean acceptance fraction: {0:.3f}".format(
+                np.mean(sampler.acceptance_fraction))
+        )
+
+        # print("Mean autocorrelation time: {0:.3f} steps".format(
+        #         np.mean(sampler.get_autocorr_time()))
+        # )
+
+        # self.autocorr_time = sampler.get_autocorr_time()
+        
+        # Optionally, calculate and append log likelihood values
+        # print('calculating likelihood for all samples in the chain')
+        # start = time.time()
+        # LLH_value = np.apply_along_axis(lambda row: self.negative_log_likelihood(row), axis=1, arr=samples)
+        # end = time.time()
+        # print('    time : %.6f sec' % (end - start))
+        # samples_with_LLH = np.column_stack((samples, LLH_value))
+
+        # randomly draw some? or have this part in the test?
+
+        # return #samples_with_LLH
+        # return samples
+        return sampler
+
+class OptimizeKernel(Interpolator):
+    '''A child class of Interpolator.
+       Returns the kernel parameters which maximizes the loglikelihood(source_x, source_f)
+    
+    Member data:
+        kernel
+        self.source_x
+        self.source_f
+    
+    Methods:
+        negative_log_prior
+        negative_log_posterior
+        negative_log_likelihood
+        optimize_kernel: use scipy.optimize.minimize to get the set of kernel hyperparameters
+                         that maximizes log likelihood.
+    '''
+
+    def __init__(self, kernel, source_x, source_f):
+        super().__init__(kernel)
+        # since emcee.EnsembleSampler requires that 
+        # negative_log_likelihood can only take 1 input
+        # I put source_x and source_f into constructor
+        self.source_x = source_x
+        self.source_f = source_f
+
+    def negative_log_prior(self, params):
+        '''define the log prior.'''
+        
+        # requires all params to be positive
+        are_all_positive = all(x > 0 for x in params)
+        if are_all_positive:
+            return 0
+        else:
+            return -np.inf
+
+
+    def negative_log_posterior(self, params):
+        '''define the log posterior. log_posterior = log_likelihood + log_prior'''
+
+        neg_log_prior = self.negative_log_prior(params)
+    
+        if not np.isfinite(neg_log_prior):
+            return -np.inf
+        else:
+            return self.negative_log_likelihood(params) + neg_log_prior
+
+
+    def negative_log_likelihood(self, params):
+        '''negative log likelihood to be minimized. Inherit from the Interpolator class'''
+
+        sigma, *lengths = params
+
+        # FIX!!! temporarily use squaredExp + noise
+        # each time params change, need to construct a new kernel
+        # what is a correct way of inputting kernels???
+
+        # construct a kernel
+        kernel = CombinedKernel(
+            SquaredExponentialKernel(sigma, *lengths),
+            WhiteNoiseKernel(sigma/100),
+        )
+
+        cov_src_src = self._x2cov(self.source_x, self.source_x, kernel)
+        s, logdet = np.linalg.slogdet(cov_src_src)
+        assert s > 0, 'covariance is not positive definite!'
+
+        # compute the log-likelihood
+        return -0.5 * self.source_f @ np.linalg.inv(cov_src_src) @ self.source_f \
+            - 0.5*logdet - 0.5*len(self.source_f)*np.log(2*np.pi)
+
+    
+    def optimize_kernel(self, initial_params):
+        """
+        Sample the kernel parameters from a distribution defined by loglikelihood using MCMC.
+
+        :param init_para: List of initial guess for parameters, [sigma, length 1, length 2, etc.]
+        :param nwalkers: Number of walkers for the MCMC sampler
+        :param nsteps: Number of steps to run the MCMC sampler
+        :param burn_in: Number of burn-in steps for the MCMC sampler
+        :return: Array of sampled parameters
+        """
+
+        # bound_list = [(initial_params[i]/1e2, initial_params[i]*1e2) for i in range(len(initial_params))]
+        bound_list = [(initial_params[i]/1e1, initial_params[i]*1e2) for i in range(len(initial_params))]
+        print(f"bounds set for the parameters to be searched: {bound_list}")
+        # exit()
+
+        # Minimize the negative log likelihood
+        result = minimize(self.negative_log_likelihood, 
+                        initial_params, 
+                        bounds=(bound_list), 
+                        method='TNC')
+
+        # Optimal hyperparameters
+        optimal_params = result.x
+
+        return optimal_params
+
+
+class Gradient(Interpolator):
+    '''A child class that calculates gradients of the interpolated quantity.'''
 
 #------------------------
 
