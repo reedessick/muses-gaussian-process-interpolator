@@ -28,7 +28,14 @@ class Kernel(object):
     def update(self, **params):
         """update the internal parameters that describe this kernel
         """
-        raise NotImplementedError('this should be implemented here and inherited by all child classes')
+        # raise NotImplementedError('this should be implemented here and inherited by all child classes')
+
+        if 'sigma' in params:
+            self.sigma = params['sigma']
+
+        # Handle lengths if more parameters are provided
+        if len(params) > 1:
+            self.lengths = np.array([params[key] for key in sorted(params) if key != 'sigma'])
 
     def cov(self, x1, x2):
         """compute the covariance between vectors x1 and x2 given the internal parameters of this kernel. \
@@ -45,6 +52,12 @@ class WhiteNoiseKernel(Kernel):
 
     def __init__(self, sigma):
         self.sigma = sigma
+    
+    def update(self, **params):
+        """update the internal parameters that describe this kernel
+        """
+        if 'sigma' in params:
+            self.sigma = params['sigma']/1000
 
     def cov(self, x1, x2):
         """expect x1, x2 to each have the shape : (Nsamp, Ndim)
@@ -97,6 +110,15 @@ class CombinedKernel(object):
         """
         for k in self.kernels:
             k.update(**params)
+        
+    # def update(self, **params):
+    #     # Update SquaredExponentialKernel
+    #     if 'sigma' in params and 'lengths' in params:
+    #         self.kernels[0].update(sigma=params['sigma'], lengths=params['lengths'])
+
+    #     # Update WhiteNoiseKernel with adjusted sigma
+    #     if 'whitenoise_sigma' in params:
+    #         self.kernels[1].update(sigma=params['sigma'] / 1000)
 
     def cov(self, *args, **kwargs):
         """iterate over contained kernels and sum the corresponding covariances
@@ -196,6 +218,8 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         """
         verbose |= Verbose
 
+        # print(f"----------> inside condition() method, sigma: {self.kernel.kernels[0].sigma}, lengths: {self.kernel.kernels[0].lengths}")
+
         # compute the relevant blocks of the joint covariance matrix
         if verbose:
             print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
@@ -263,6 +287,10 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
     def _x2cov(x1, x2, kernel, verbose=False):
         """a helper function that build covariance matrices
         """
+
+        # print(f"----------> inside _x2cov() method, sigma: {kernel.kernels[0].sigma}, lengths: {kernel.kernels[0].lengths}")
+
+
         n1 = len(x1)
         n2 = len(x2)
 
@@ -380,9 +408,36 @@ a mean function and a covariance matrix
 
     # utilities for determining good hyperparameters for the model
 
-    def loglikelihood(self, source_x, source_f, verbose=False):
+    def negative_log_prior(self, source_x, source_f, params):
+        '''define the log prior.'''
+        
+        # assume a flat prior
+        # requires all params to be positive
+        are_all_positive = all(x > 0 for x in params)
+        if are_all_positive:
+            return 0
+        else:
+            return -np.inf
+
+
+    def negative_log_posterior(self, source_x, source_f, params):
+        '''define the log posterior. log_posterior = log_likelihood + log_prior'''
+
+        neg_log_prior = self.negative_log_prior(source_x, source_f, params)
+    
+        if not np.isfinite(neg_log_prior):
+            return -np.inf
+        else:
+            return self.negative_log_likelihood(source_x, source_f, params) + neg_log_prior
+        
+
+    def negative_log_likelihood(self, source_x, source_f, params, verbose=False):
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
         """
+
+        # Update kernel parameters
+        self.kernel.update(**params)
+
         cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
         s, logdet = np.linalg.slogdet(cov_src_src)
         assert s > 0, 'covariance is not positive definite!'
@@ -393,102 +448,54 @@ a mean function and a covariance matrix
 
     #---
 
-    def optimize_kernel(self, source_x, source_f):
-        """find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f)
+    def optimize_kernel(self, source_x, source_f, initial_params, bound_list):
         """
-        raise NotImplementedError('should be overwritten by child classes')
+        Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f)
+
+        :initial_params: Dictionary of initial guess for parameters {"sigma": sigma, "length1": length1, etc.}
+        """
+        # raise NotImplementedError('should be overwritten by child classes')
+
+        print(f"initial guess for the parameters: {initial_params}")
+        print(f"bounds for the parameters to be searched: {bound_list}")
+
+        initial_values = [initial_params[key] for key in initial_params]
+        bounds = [bound_list[key] for key in initial_params]
+
+        # Minimize the negative log likelihood
+        result = minimize(lambda params: self.negative_log_likelihood(source_x, source_f, 
+                                                                      dict(zip(initial_params.keys(), params))), 
+                          initial_values, 
+                          bounds=(bounds), 
+                          method='TNC')
+
+        # Optimal hyperparameters
+        optimal_params = dict(zip(initial_params.keys(), result.x))
+        
+        # update the interpolator to the optimal parameters
+        self.kernel.update(**optimal_params)
+
+        return optimal_params
 
     #---
 
-    def sample_kernel(self, source_x, source_f):
-        """sample the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
+    def sample_kernel(self, source_x, source_f, init_para_dict, burn_in=100, nsteps=100, nwalkers=None):
         """
-        raise NotImplementedError('should be overwritten by child classes')
-
-
-
-class SampleKernel(Interpolator):
-    '''A child class of Interpolator that
-       samples the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
-    
-    Member data:
-        self.source_x
-        self.source_f
-    
-    Methods:
-        negative_log_prior
-        negative_log_posterior
-        negative_log_likelihood
-        sample_kernel: use MCMC to sample kernel parameters.
-    
-    '''
-    def __init__(self, kernel, source_x, source_f):
-        super().__init__(kernel)
-        # since emcee.EnsembleSampler requires that 
-        # negative_log_likelihood can only take 1 input
-        # I put source_x and source_f into constructor
-        self.source_x = source_x
-        self.source_f = source_f
-
-    def negative_log_prior(self, params):
-        '''define the log prior.'''
+        Sample the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
         
-        # requires all params to be positive
-        are_all_positive = all(x > 0 for x in params)
-        if are_all_positive:
-            return 0
-        else:
-            return -np.inf
-
-
-    def negative_log_posterior(self, params):
-        '''define the log posterior. log_posterior = log_likelihood + log_prior'''
-
-        neg_log_prior = self.negative_log_prior(params)
-    
-        if not np.isfinite(neg_log_prior):
-            return -np.inf
-        else:
-            return self.negative_log_likelihood(params) + neg_log_prior
-
-
-    def negative_log_likelihood(self, params):
-        '''negative log likelihood to be minimized. Inherit from the Interpolator class'''
-
-        sigma, *lengths = params
-
-        # FIX!!! temporarily use squaredExp + noise
-        # each time params change, need to construct a new kernel
-        # what is a correct way of inputting kernels???
-
-        # construct a kernel
-        kernel = CombinedKernel(
-            SquaredExponentialKernel(sigma, *lengths),
-            WhiteNoiseKernel(sigma/100),
-        )
-
-        cov_src_src = self._x2cov(self.source_x, self.source_x, kernel)
-        s, logdet = np.linalg.slogdet(cov_src_src)
-        assert s > 0, 'covariance is not positive definite!'
-
-        # compute the log-likelihood
-        return -0.5 * self.source_f @ np.linalg.inv(cov_src_src) @ self.source_f \
-            - 0.5*logdet - 0.5*len(self.source_f)*np.log(2*np.pi)
-
-    
-    def sample_kernel(self, init_para, burn_in=100, nsteps=100, nwalkers=None):
-        """
-        Sample the kernel parameters from a distribution defined by loglikelihood using MCMC.
-
-        :param init_para: List of initial guess for parameters, [sigma, length 1, length 2, etc.]
+        :param init_para: Dictionary of initial guess for parameters, {"sigma": sigma, "length1": length1, etc.}
         :param nwalkers: Number of walkers for the MCMC sampler
-        :param nsteps: Number of steps to run the MCMC sampler
         :param burn_in: Number of burn-in steps for the MCMC sampler
-        :return: Array of sampled parameters
+        :param nsteps: Number of steps to run the MCMC sampler
+        
+        :return: the MCMC sampler object
         """
+        # raise NotImplementedError('should be overwritten by child classes')
 
         # initial parameters
-        n_dim = len(init_para)
+        init_para = list(init_para_dict.values())
+
+        n_dim = len(init_para_dict)
         if nwalkers is None:
             nwalkers = 2*n_dim
             # print("check point 1")
@@ -502,7 +509,11 @@ class SampleKernel(Interpolator):
         # print(walkers)
 
         # give sampler negative_log_posterior
-        sampler = emcee.EnsembleSampler(nwalkers, n_dim, self.negative_log_posterior)
+        # sampler = emcee.EnsembleSampler(nwalkers, n_dim, self.negative_log_posterior)
+        sampler = emcee.EnsembleSampler(nwalkers, n_dim,
+                                        lambda params: self.negative_log_likelihood(source_x, source_f, 
+                                                                      dict(zip(init_para_dict.keys(), params)))
+                                        )
 
         # burn-in steps
         print('running MCMC burn-in with {:d} steps'.format(burn_in))
@@ -523,7 +534,7 @@ class SampleKernel(Interpolator):
         print('    time : %.6f sec' % (end - start))
 
         # Extract samples
-        samples = sampler.get_chain(flat=True)
+        # samples = sampler.get_chain(flat=True)
 
         print("Mean acceptance fraction: {0:.3f}".format(
                 np.mean(sampler.acceptance_fraction))
@@ -549,107 +560,8 @@ class SampleKernel(Interpolator):
         # return samples
         return sampler
 
-class OptimizeKernel(Interpolator):
-    '''A child class of Interpolator.
-       Returns the kernel parameters which maximizes the loglikelihood(source_x, source_f)
-    
-    Member data:
-        kernel
-        self.source_x
-        self.source_f
-    
-    Methods:
-        negative_log_prior
-        negative_log_posterior
-        negative_log_likelihood
-        optimize_kernel: use scipy.optimize.minimize to get the set of kernel hyperparameters
-                         that maximizes log likelihood.
-    '''
-
-    def __init__(self, kernel, source_x, source_f):
-        super().__init__(kernel)
-        # since emcee.EnsembleSampler requires that 
-        # negative_log_likelihood can only take 1 input
-        # I put source_x and source_f into constructor
-        self.source_x = source_x
-        self.source_f = source_f
-
-    def negative_log_prior(self, params):
-        '''define the log prior.'''
-        
-        # requires all params to be positive
-        are_all_positive = all(x > 0 for x in params)
-        if are_all_positive:
-            return 0
-        else:
-            return -np.inf
 
 
-    def negative_log_posterior(self, params):
-        '''define the log posterior. log_posterior = log_likelihood + log_prior'''
-
-        neg_log_prior = self.negative_log_prior(params)
-    
-        if not np.isfinite(neg_log_prior):
-            return -np.inf
-        else:
-            return self.negative_log_likelihood(params) + neg_log_prior
-
-
-    def negative_log_likelihood(self, params):
-        '''negative log likelihood to be minimized. Inherit from the Interpolator class'''
-
-        sigma, *lengths = params
-
-        # FIX!!! temporarily use squaredExp + noise
-        # each time params change, need to construct a new kernel
-        # what is a correct way of inputting kernels???
-
-        # construct a kernel
-        kernel = CombinedKernel(
-            SquaredExponentialKernel(sigma, *lengths),
-            WhiteNoiseKernel(sigma/100),
-        )
-
-        cov_src_src = self._x2cov(self.source_x, self.source_x, kernel)
-        s, logdet = np.linalg.slogdet(cov_src_src)
-        assert s > 0, 'covariance is not positive definite!'
-
-        # compute the log-likelihood
-        return -0.5 * self.source_f @ np.linalg.inv(cov_src_src) @ self.source_f \
-            - 0.5*logdet - 0.5*len(self.source_f)*np.log(2*np.pi)
-
-    
-    def optimize_kernel(self, initial_params):
-        """
-        Sample the kernel parameters from a distribution defined by loglikelihood using MCMC.
-
-        :param init_para: List of initial guess for parameters, [sigma, length 1, length 2, etc.]
-        :param nwalkers: Number of walkers for the MCMC sampler
-        :param nsteps: Number of steps to run the MCMC sampler
-        :param burn_in: Number of burn-in steps for the MCMC sampler
-        :return: Array of sampled parameters
-        """
-
-        # bound_list = [(initial_params[i]/1e2, initial_params[i]*1e2) for i in range(len(initial_params))]
-        bound_list = [(initial_params[i]/1e1, initial_params[i]*1e2) for i in range(len(initial_params))]
-        print(f"bounds set for the parameters to be searched: {bound_list}")
-        # exit()
-
-        # Minimize the negative log likelihood
-        result = minimize(self.negative_log_likelihood, 
-                        initial_params, 
-                        bounds=(bound_list), 
-                        method='TNC')
-
-        # Optimal hyperparameters
-        optimal_params = result.x
-
-        return optimal_params
-
-
-class Gradient(Interpolator):
-    '''A child class that calculates gradients of the interpolated quantity.'''
 
 #------------------------
 
