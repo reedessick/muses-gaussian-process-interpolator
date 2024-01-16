@@ -5,8 +5,9 @@ __author__ = "Reed Essick (reed.essick@gmail.com), Ziyuan Zhang (ziyuan.z@wustl.
 #-------------------------------------------------
 
 import time
-
 import warnings
+
+from collections import defaultdict
 
 import numpy as np
 
@@ -174,7 +175,7 @@ class SquaredExponentialKernel(MaternKernel):
 
 ### a class to represent a mixture over kernels
 
-class CombinedKernel(object):
+class CombinedKernel(Kernel):
     """an object that represent the sum of multiple kernels
     """
 
@@ -192,17 +193,21 @@ class CombinedKernel(object):
 
             # check that dimensionality agrees between all kernels
             if isinstance(kernel, NDKernel):
-                if num_dim is None:
+                if self._num_dim is None:
                     self._num_dim = kernel.num_dim
                 else:
                     assert self._num_dim == kernel.num_dim, 'conflict in dimensionality of kernels!'
 
             # add parameters to the tuple
-            self._params = self._params + tuple(self.combinedkernel_name(name, ind) for name in kernel._params)
+            self._params = self._params + tuple(self._combinedkernel_name(name, ind) for name in kernel._params)
 
         self.kernels = tuple(kernels) # make a new object so we don't mess up with cross-references
 
     #---
+
+    @property
+    def params_dict(self):
+        return dict(zip(self._params, np.concatenate([kernel.params for kernel in self.kernels])))
 
     @staticmethod
     def _combinedkernel_name(name, index):
@@ -211,14 +216,20 @@ class CombinedKernel(object):
     @staticmethod
     def _kernel_name(name):
         name = name.split('_')
-        return '_'.join(name[:-1]), int(name[-1])
+        try:
+            ind = int(name[-1])
+        except ValueError:
+            raise RuntimeError('cannot map "%s" to parameter name and kernel index!' % ('_'.join(name)))
+
+        return '_'.join(name[:-1]), ind
         
     #---
 
     def __str__(self):
         ans = self.__class__.__name__
         for ind, kernel in enumerate(self.kernels):
-            ans += '\n\t%d\t%s' % (ind, str(kernel))
+            ans += '\n    kernel %-2d : %s' % (ind, str(kernel))
+        return ans
 
     def __repr__(self):
         return self.__str__()
@@ -531,7 +542,7 @@ a mean function and a covariance matrix
 
     #---
 
-    def optimize_kernel(self, source_x, source_f, verbose=False): #, bound_list):
+    def optimize_kernel(self, source_x, source_f, logprior=None, verbose=False):
         """
         Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
         """
@@ -541,15 +552,15 @@ a mean function and a covariance matrix
         # Minimize the negative loglikelihood (maximize loglikelihood)
 
         ## define target function that we will minimize
+        if logprior is None: # set prior to be flat
+            logprior = lambda x: 0.0
+
         def target(**params):
             for key, val in params.items(): # check to make sure parameters are reasonable
                 if val < 0:
                     return np.infty # return a big number so we avoid this region
             self.update(**params)
-            return - self.loglikelihood(source_x, source_f)
-
-        # FIXME! check to see whether "bound_list" is actually needed...
-#        bounds = [bound_list[key] for key in initial_params]
+            return - (self.loglikelihood(source_x, source_f) + logprior(params))
 
         ## run the minimizer
         if args.verbose:
@@ -559,7 +570,6 @@ a mean function and a covariance matrix
         result = _minimize(
             target,
             self.kernel.params_dict,
-#            bounds=(bounds),
             method='TNC',
         )
 
@@ -574,7 +584,7 @@ a mean function and a covariance matrix
 
     #--------------------
 
-    def _instantiate_sampler(self, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
+    def _instantiate_sampler(self, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
 
         # check dimensionality of the sampling problem
         num_dim = len(self.kernel.params)
@@ -588,9 +598,12 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
+        if logprior is None:
+            logprior = lambda x: 0.0 # set to be flat
+
         def target(params):
             if np.all(params > 0): # check to make sure parameters are reasonable
-                return self.loglikelihood(source_x, source_f) # flat (but impropper) priors
+                return self.loglikelihood(source_x, source_f) + logprior(params)
             else:
                 return -np.infty # avoid these regions of parameter space
 
@@ -608,6 +621,7 @@ a mean function and a covariance matrix
             self,
             source_x,
             source_f,
+            logprior=None,
             num_burnin=DEFAULT_NUM_BURNIN,
             num_samples=DEFAULT_NUM_SAMPLES,
             num_walkers=DEFAULT_NUM_WALKERS,
@@ -622,7 +636,7 @@ a mean function and a covariance matrix
         #---
 
         # set up the sampler
-        sampler = self._instantiate_sampler(num_walkers=num_walkers, verbose=verbose)
+        sampler = self._instantiate_sampler(logprior, num_walkers=num_walkers, verbose=verbose)
 
         #---
 
