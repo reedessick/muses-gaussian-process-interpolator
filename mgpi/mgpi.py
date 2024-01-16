@@ -39,11 +39,19 @@ class Kernel(object):
         assert len(params) == len(self._params), 'must specify all parameters!\n\tparams=%s' % self._params
         self.params = np.array(params, dtype=float)
 
+    @property
+    def params_dict(self):
+        return dict(zip(self._params, self.params))
+
+    #---
+
     def __str__(self):
-        return '%s(%s)' % (self.__class__.__name__, ', '.join('%s=%.3e'%item for item in zip(self._params, self.params)))
+        return '%s(%s)' % (self.__class__.__name__, ', '.join('%s=%.3e'%item for item in self.params_dict.items()))
 
     def __repr__(self):
         return self.__str__()
+
+    #---
 
     def update(self, **params):
         """update the internal parameters that describe this kernel
@@ -53,6 +61,8 @@ class Kernel(object):
                 self.params[self._params.index(key)] = val
             except ValueError:
                 warnings.warn('Warning! cannot update %s in object type %s' % (key, self.__class__.__name__))
+
+    #---
 
     def cov(self, x1, x2):
         """compute the covariance between vectors x1 and x2 given the internal parameters of this kernel. \
@@ -77,7 +87,7 @@ depending on the dimensionality.
         """update self._params and self.params to account for the correct dimensionality of the kernel
         """
         assert len(lengths), 'must specify at least one length'
-        self._num_dim = len(lenghts)
+        self._num_dim = len(lengths)
         self._params = self._params + tuple('length%d'%ind for ind in range(self._num_dim))
         self.params = self.params + tuple(lengths)
 
@@ -118,6 +128,8 @@ class MaternKernel(NDKernel):
         self._parse_lengths(*lengths)
         Kernel.__init__(self, *self.params)
 
+    #---
+
     def cov(self, x1, x2):
         """exect x1, x2 to each have the shape : (Nsamp, Ndim)
         """
@@ -141,6 +153,8 @@ class SquaredExponentialKernel(MaternKernel):
         self._parse_lengths(*lengths)
         Kernel.__init__(self, *self.params)
 
+    #---
+
     def cov(self, x1, x2):
         """expect x1, x2 to each have the shape : (Nsamp, Ndim)
         """
@@ -162,16 +176,10 @@ class CombinedKernel(object):
         assert len(kernels) >= 2, 'must supply at least 2 kernels'
         self._num_kernels = len(kernels)
 
-        for kernel in kernels:
-            if isinstance(kernel, NDKernel):
-                if num_dim is None:
-                    self._num_dim = kernel.num_dim
-                else:
-                    assert self._num_dim == kernel.num_dim, 'conflict in dimensionality of kernels!'
-
-        # create map for _params between kernels and their parameter names
+        # iterate over kernels, sanity checking and creating map for _params between kernels and their parameter names
         self._num_dim = None
         self._params = ()
+
         for ind, kernel in enumerate(kernels):
 
             # check that dimensionality agrees between all kernels
@@ -184,7 +192,7 @@ class CombinedKernel(object):
             # add parameters to the tuple
             self._params = self._params + tuple(self.combinedkernel_name(name, ind) for name in kernel._params)
 
-        self.kernels = kernels
+        self.kernels = tuple(kernels) # make a new object so we don't mess up with cross-references
 
     #---
 
@@ -222,6 +230,8 @@ class CombinedKernel(object):
         for ind, params in ans.items():
             self.kernels[ind].update(**params)
 
+    #---
+
     def cov(self, *args, **kwargs):
         """iterate over contained kernels and sum the corresponding covariances
         """
@@ -253,14 +263,13 @@ about the structure of the covariance matrix or mean function
     return inv(Cov(source_x, source_x)) @ source_f
         """
 
+        # construct covariane matrix
         if verbose:
             print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
             t0 = time.time()
         cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
-
-        #---
 
         # invert this covariance only once
         if verbose:
@@ -270,8 +279,6 @@ about the structure of the covariance matrix or mean function
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
-        #---
-
         # compute the contraction that can be used to compute the mean
         if verbose:
             print('compressing observations')
@@ -280,22 +287,22 @@ about the structure of the covariance matrix or mean function
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
-        #---
-
+        # return
         return compressed
+
+    #---
 
     def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
         """used the compressed representation of the training data to predict the mean at target_x
         """
 
+        # construct covariane matrix
         if verbose:
             print('constructing %d x %d target-source covariance matrix'%(len(target_x), len(source_x)))
             t0 = time.time()
         cov_tar_src = self._x2cov(target_x, source_x, self.kernel, verbose=Verbose)
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
-
-        #---
 
         # compute the mean
         if verbose:
@@ -305,8 +312,7 @@ about the structure of the covariance matrix or mean function
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
-        #---
-
+        # return
         return mean
 
     #--------------------
@@ -321,6 +327,7 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         verbose |= Verbose
 
         # compute the relevant blocks of the joint covariance matrix
+
         if verbose:
             print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
             t0 = time.time()
@@ -376,8 +383,6 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
-        #---
-
         # return
         return mean, cov
 
@@ -388,9 +393,7 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         """a helper function that build covariance matrices
         """
 
-        # print(f"----------> inside _x2cov() method, sigma: {kernel.kernels[0].sigma}, lengths: {kernel.kernels[0].lengths}")
-
-
+        # check dimensionality of the data
         n1 = len(x1)
         n2 = len(x2)
 
@@ -476,8 +479,7 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
-        #---
-
+        # return
         return cov
 
     #--------------------
@@ -507,97 +509,59 @@ a mean function and a covariance matrix
     #--------------------
 
     # utilities for determining good hyperparameters for the model
+    # these are based on the marginal likelihood for the observed data conditioned on the kernel parameters
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def negative_log_prior(self, source_x, source_f, params):
-        '''define the log prior.'''
-        
-        # assume a flat prior
-        # requires all params to be positive
-        are_all_positive = all(x > 0 for x in params)
-        if are_all_positive:
-            return 0
-        else:
-            return -np.inf
-
-
-    def negative_log_posterior(self, source_x, source_f, params):
-        '''define the log posterior. log_posterior = log_likelihood + log_prior'''
-
-        neg_log_prior = self.negative_log_prior(source_x, source_f, params)
-    
-        if not np.isfinite(neg_log_prior):
-            return -np.inf
-        else:
-            return self.negative_log_likelihood(source_x, source_f, params) + neg_log_prior
-        
-
-    def negative_log_likelihood(self, source_x, source_f, params, verbose=False):
+    def loglikelihood(self, source_x, source_f):
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
         """
-
-        # Update kernel parameters
-        self.kernel.update(**params)
-
         cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
         s, logdet = np.linalg.slogdet(cov_src_src)
         assert s > 0, 'covariance is not positive definite!'
 
         # compute the log-likelihood
-        return -0.5 * source_f @ np.linalg.inv(cov_src_src) @ source_f \
-            - 0.5*logdet - 0.5*len(source_f)*np.log(2*np.pi)
+        return -0.5 * source_f @ np.linalg.inv(cov_src_src) @ source_f - 0.5*logdet - 0.5*len(source_f)*np.log(2*np.pi)
 
     #---
 
-    def optimize_kernel(self, source_x, source_f, initial_params, bound_list):
+    def optimize_kernel(self, source_x, source_f, verbose=False): #, bound_list):
         """
-        Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f)
-
-        :initial_params: Dictionary of initial guess for parameters {"sigma": sigma, "length1": length1, etc.}
+        Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
         """
         if _minimize is None:
             raise ImportError('could not import scipy.optimize.minimize')
 
-        # raise NotImplementedError('should be overwritten by child classes')
+        # Minimize the negative loglikelihood (maximize loglikelihood)
 
-        print(f"initial guess for the parameters: {initial_params}")
-        print(f"bounds for the parameters to be searched: {bound_list}")
+        ## define target function that we will minimize
+        def target(**params):
+            for key, val in params.items(): # check to make sure parameters are reasonable
+                if val < 0:
+                    return np.infty # return a big number so we avoid this region
+            self.update(**params)
+            return - self.loglikelihood(source_x, source_f)
 
-        initial_values = [initial_params[key] for key in initial_params]
-        bounds = [bound_list[key] for key in initial_params]
+        # FIXME! check to see whether "bound_list" is actually needed...
+#        bounds = [bound_list[key] for key in initial_params]
 
-        # Minimize the negative log likelihood
-        result = _minimize(lambda params: self.negative_log_likelihood(source_x, source_f, 
-                                                                      dict(zip(initial_params.keys(), params))), 
-                          initial_values, 
-                          bounds=(bounds), 
-                          method='TNC')
+        ## run the minimizer
+        result = _minimize(
+            target,
+            self.kernel.params_dict,
+#            bounds=(bounds),
+            method='TNC',
+        )
 
-        # Optimal hyperparameters
-        optimal_params = dict(zip(initial_params.keys(), result.x))
-        
-        # update the interpolator to the optimal parameters
-        self.kernel.update(**optimal_params)
+        # update the kernel to match the optimal parameters
+        self.kernel.update(**dict(zip(self.kernel._params, result.x)))
 
-        return optimal_params
+        # return
+        return self.kernel.params_dict
 
     #---
+
+    def sample_kernel(self, *args, **kwargs):
+        raise NotImplementedError('''
+
 
     def sample_kernel(self, source_x, source_f, init_para_dict, burn_in=100, nsteps=100, nwalkers=None):
         """
@@ -634,7 +598,7 @@ a mean function and a covariance matrix
         # give sampler negative_log_posterior
         # sampler = emcee.EnsembleSampler(nwalkers, n_dim, self.negative_log_posterior)
         sampler = emcee.EnsembleSampler(nwalkers, n_dim,
-                                        lambda params: self.negative_log_likelihood(source_x, source_f, 
+                                        lambda params: self.negative_log_likelihood(source_x, source_f,
                                                                       dict(zip(init_para_dict.keys(), params)))
                                         )
 
@@ -668,7 +632,7 @@ a mean function and a covariance matrix
         # )
 
         # self.autocorr_time = sampler.get_autocorr_time()
-        
+
         # Optionally, calculate and append log likelihood values
         # print('calculating likelihood for all samples in the chain')
         # start = time.time()
@@ -682,6 +646,7 @@ a mean function and a covariance matrix
         # return #samples_with_LLH
         # return samples
         return sampler
+''')
 
 #------------------------
 
