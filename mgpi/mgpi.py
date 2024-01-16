@@ -554,7 +554,7 @@ a mean function and a covariance matrix
         ## run the minimizer
         if args.verbose:
             print('extremizing loglikelihood')
-           t0 = time.time()
+            t0 = time.time()
 
         result = _minimize(
             target,
@@ -629,16 +629,13 @@ a mean function and a covariance matrix
         # picking initial positions for walkers
         if args.verbose:
             print('initializing %d walkers (num_dim = %d)' % (num_walkers, num_dim))
-           t0 = time.time()
+            t0 = time.time()
 
-        raise NotImplementedError('''
-        init_para = list(init_para_dict.values())
+        # scatter parameters in a unit ball around the initial guess
+        state = self.kernel.params * (1 + random.normal(size=(num_walkers, num_dim))/3)
 
-        # Initialize walkers
-        bounds = [(param - param / 8, param + param / 8) for param in init_para]
-
-        state = np.array([np.random.uniform(low, high, nwalkers) for low, high in bounds]).T
-''')
+        # make sure all parameters are initially positive
+        state = np.abs(state)
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
