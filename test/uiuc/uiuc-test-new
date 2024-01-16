@@ -193,11 +193,11 @@ if args.verbose:
 # now, let's guess at appropriate hyperparameters
 ave = np.mean(source_f)       ### mean of the process
 
-sigma = np.std(source_f) * 1.5  ### variance based on spread of the function
+sigma = np.std(source_f) * 2.0  ### variance based on spread of the function
 
 lengths = [                   ### based on the average grid spacing
-    np.mean(np.diff(baryon_chemical_potential[0,:])) * 1.5,
-    np.mean(np.diff(temperature[:,0])) * 1.5,
+    np.mean(np.diff(baryon_chemical_potential[0,:])) * 2.0,
+    np.mean(np.diff(temperature[:,0])) * 2.0,
 ]
 
 # construct a kernel
