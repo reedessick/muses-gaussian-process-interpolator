@@ -277,26 +277,6 @@ mean_optimized += ave ### add back in the mean that I substracted
 print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)))
 print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)/target_f))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #-------------------------------------------------
 #
 #   sample parameters from likelihood function using MCMC
