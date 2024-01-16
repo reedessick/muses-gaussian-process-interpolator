@@ -320,8 +320,6 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         """
         verbose |= Verbose
 
-        # print(f"----------> inside condition() method, sigma: {self.kernel.kernels[0].sigma}, lengths: {self.kernel.kernels[0].lengths}")
-
         # compute the relevant blocks of the joint covariance matrix
         if verbose:
             print('constructing %d x %d target-target covariance matrix'%(len(target_x), len(target_x)))
@@ -499,7 +497,7 @@ source_f at source_x
 a mean function and a covariance matrix
         """
         # draw the random fluctuations around the mean function
-        scales = np.diag(cov)**0.5
+        scales = np.diag(cov)**0.5 # re-scale variables to make drawing samples more numerically stable
         zeros = np.zeros_like(mean, dtype=float)
         rands = np.random.multivariate_normal(zeros, cov/np.outer(scales, scales), size=size) * scales
 
@@ -509,6 +507,23 @@ a mean function and a covariance matrix
     #--------------------
 
     # utilities for determining good hyperparameters for the model
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def negative_log_prior(self, source_x, source_f, params):
         '''define the log prior.'''
@@ -668,12 +683,12 @@ a mean function and a covariance matrix
         # return samples
         return sampler
 
-
-
-
 #------------------------
 
 class NearestNeighborInterpolator(Interpolator):
     """implements a NearestNeighbor Gaussian Process, which induces a sparse covariance matrix and allows for \
-matrix inversion in linear time
+matrix inversion in linear time.
+This is based on:
+    Abhirup Datta, Sudipto Banerjee, Andrew O. Finley & Alan E. Gelfand (2016) Hierarchical Nearest-Neighbor Gaussian Process Models for Large Geostatistical Datasets, Journal of the American Statistical Association, 111:514, 800-812, DOI: 10.1080/01621459.2015.1044091
     """
+    pass # FIXME! implement NearestNeighbor logic
