@@ -6,13 +6,25 @@ __author__ = "Reed Essick (reed.essick@gmail.com), Ziyuan Zhang (ziyuan.z@wustl.
 
 import time
 
+import warnings
 
 import numpy as np
-from scipy.special import gamma
-from scipy.special import kv as bessel_k
-from scipy.optimize import minimize
 
-import emcee
+try:
+    from scipy.special import gamma
+    from scipy.special import kv as bessel_k
+except:
+    gamma = bessel_k = None
+
+try:
+    from scipy.optimize import minimize
+except:
+    minimize = None
+
+try:
+    import emcee
+except ImportError:
+    emcee = None
 
 #-------------------------------------------------
 
@@ -21,21 +33,20 @@ import emcee
 class Kernel(object):
     """a parent class that defines the API for all kernel objects
     """
+    _params = ()
 
     def __init__(self, *params):
-        self.params = params
+        assert len(params) == len(self._params), 'must specify all parameters!\n\tparams=%s' % self._params
+        self.params = np.array(params, dtype=float)
 
     def update(self, **params):
         """update the internal parameters that describe this kernel
         """
-        # raise NotImplementedError('this should be implemented here and inherited by all child classes')
-
-        if 'sigma' in params:
-            self.sigma = params['sigma']
-
-        # Handle lengths if more parameters are provided
-        if len(params) > 1:
-            self.lengths = np.array([params[key] for key in sorted(params) if key != 'sigma'])
+        for key, val in params.items():
+            try:
+                self.params[self._params.index(key)] = val
+            except ValueError:
+                warnings.warn('Warning! cannot update %s in object type %s' % (key, self.__class__.__name__))
 
     def cov(self, x1, x2):
         """compute the covariance between vectors x1 and x2 given the internal parameters of this kernel. \
@@ -45,54 +56,86 @@ This will return a matrix with shape (len(x1), len(x2))
 
 #------------------------
 
+class NDKernel(Kernel):
+    """a class that supports the kernels of variable dimension that require different numbers of parameters \
+depending on the dimensionality.
+    """
+
+    def __init__(self, *lengths):
+        self._params = ()
+        self.params = ()
+        self._parse_lengths(*lengths)
+        Kernel.__init__(self, *self._params) # will cast to a standard type
+
+    def _parse_lengths(self, *lengths):
+        """update self._params and self.params to account for the correct dimensionality of the kernel
+        """
+        assert len(lengths), 'must specify at least one length'
+        self._params = self._params + tuple('length%d'%ind for ind in range(len(lengths)))
+        self.params = self.params + tuple(lengths)
+
+#-------------------------------------------------
+
 class WhiteNoiseKernel(Kernel):
     """a simple white-noise kernel:
     cov[f(x1), f(x2)] = sigma**2 * delta(x1-x2)
     """
-
-    def __init__(self, sigma):
-        self.sigma = sigma
-    
-    def update(self, **params):
-        """update the internal parameters that describe this kernel
-        """
-        if 'sigma' in params:
-            self.sigma = params['sigma']/1000
+    _params = ('sigma',)
 
     def cov(self, x1, x2):
         """expect x1, x2 to each have the shape : (Nsamp, Ndim)
         """
         return self.sigma**2 * np.all(x1 == x2, axis=1)
 
-class SquaredExponentialKernel(Kernel):
-    """a simple Squared-Exponential kernel:
-    cov[f(x1), f(x2)] = sigma**2 * exp(-(x1-x2)**2/length**2)
-    """
+#------------------------
 
-    def __init__(self, sigma, *lengths):
-        self.sigma = sigma
-        self.lengths = np.array(lengths)
-
-    def cov(self, x1, x2):
-        """expect x1, x2 to each have the shape : (Nsamp, Ndim)
-        """
-        return self.sigma**2 * np.exp(-np.sum((x1-x2)**2/self.lengths**2, axis=1))
-
-class MaternKernel(Kernel):
+class MaternKernel(NDKernel):
     """a Matern covariance kernel: https://en.wikipedia.org/wiki/Mat%C3%A9rn_covariance_function
+    the dimensionality of the kernel is set by the number of "lengths" specified upon instantiation
     """
+    def __init__(self, order, sigma, *lengths):
 
-    def __init__(self, sigma, order, *lengths):
-        self.sigma = sigma
-        self.order = order
-        self.lengths = np.array(lengths)
+        # check that we could import required functions
+        if gamma is None:
+            raise ImportError('could not import scipy.special.gamma')
+        if bessel_k is None:
+            raise ImportError('could not import scipy.special.kv')
+
+        # now set up params
+        self._params = ('order', 'sigma')
+        self.params = (order, sigma)
+        self._parse_lengths(*lengths)
+        Kernel.__init__(self, *self.params)
 
     def cov(self, x1, x2):
         """exect x1, x2 to each have the shape : (Nsamp, Ndim)
         """
-        o = self.order
-        diff = (2*o)**0.5 * np.sum((x1-x2)**2/self.length**2, axis=1)**0.5
-        return self.sigma**2 * (2**(1-o) / gamma(o)) * diff**o * bessel_k(o, diff)
+        o = self.params[0] # order
+        s = self.params[1] # sigma
+        lengths = self.params[2:]
+        diff = (2*o)**0.5 * np.sum((x1-x2)**2/lengths**2, axis=1)**0.5
+        return s**2 * (2**(1-o) / gamma(o)) * diff**o * bessel_k(o, diff)
+
+#------------------------
+
+class SquaredExponentialKernel(MaternKernel):
+    """a simple Squared-Exponential kernel (the limit of Matern as order -> infty):
+    cov[f(x1), f(x2)] = sigma**2 * exp(-(x1-x2)**2/length**2)
+    """
+    _params = ('sigma', 'lengths')
+    
+    def __init__(self, sigma, *lengths):
+        self._params = ('sigma',)
+        self.params = (sigma,)
+        self._parse_lengths(*lengths)
+        Kernel.__init__(self, *self.params)
+
+    def cov(self, x1, x2):
+        """expect x1, x2 to each have the shape : (Nsamp, Ndim)
+        """
+        sigma = self.params[0]
+        lengths = self.params[1:]
+        return sigma**2 * np.exp(-np.sum((x1-x2)**2/lengths**2, axis=1))
 
 #------------------------
 
@@ -103,6 +146,9 @@ class CombinedKernel(object):
     """
 
     def __init__(self, *kernels):
+
+        raise NotImplementedError
+
         self.kernels = kernels
 
     def update(self, **params):
@@ -454,6 +500,9 @@ a mean function and a covariance matrix
 
         :initial_params: Dictionary of initial guess for parameters {"sigma": sigma, "length1": length1, etc.}
         """
+        if minimize is None:
+            raise ImportError('could not import scipy.optimize.minimize')
+
         # raise NotImplementedError('should be overwritten by child classes')
 
         print(f"initial guess for the parameters: {initial_params}")
@@ -490,6 +539,9 @@ a mean function and a covariance matrix
         
         :return: the MCMC sampler object
         """
+        if emcee is None:
+            raise ImportError('could not import emcee')
+
         # raise NotImplementedError('should be overwritten by child classes')
 
         # initial parameters
