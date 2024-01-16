@@ -182,6 +182,9 @@ kernel = mgpi.CombinedKernel(
     mgpi.WhiteNoiseKernel(sigma/1000), # a small white noise component for numerical stability
 )
 
+if args.verbose:
+    print(kernel)
+
 # construct a general interpolator
 interpolator = mgpi.Interpolator(kernel)
 

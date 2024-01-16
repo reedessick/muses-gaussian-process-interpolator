@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """a simple test of the interpolator
 """
@@ -7,14 +7,16 @@ __author__ = "Reed Essick (reed.essick@gmail.com), Ziyuan Zhang (ziyuan.z@wustl.
 #-------------------------------------------------
 
 import time
-import sys, os
+import sys
+import os
 
-import pickle
 import numpy as np
-import pandas as pd
-from sklearn.metrics import mean_absolute_percentage_error
+#import pandas as pd
+
+#from sklearn.metrics import mean_absolute_percentage_error
+
 from scipy import interpolate
-from scipy.optimize import minimize
+
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
@@ -22,12 +24,7 @@ from matplotlib import pyplot as plt
 from argparse import ArgumentParser
 
 ### non-standard libraries
-# import mgpi
 import mgpi
-
-# print(sys.path)
-# exit()
-
 
 #-------------------------------------------------
 
@@ -38,7 +35,6 @@ DEFAULT_MAX_TEMPERATURE = 400.0
 
 parser = ArgumentParser()
 
-#path = '../etc/equation_of_state.csv.gz'
 parser.add_argument('eos_path', type=str)
 
 parser.add_argument('--max-temperature', default=DEFAULT_MAX_TEMPERATURE, type=float,
@@ -167,11 +163,27 @@ if args.verbose:
     if args.time_execution:
         print('    time : %.6f sec' % (time.time()-t0))
 
-###---------------------------------------------------------------------------------
-### simple estimate of hyperparameters
-###---------------------------------------------------------------------------------
-print("---------------------------------------------------------------------------------")
-print("Building GP from simple estimation of hyperparameters")
+#-------------------------------------------------
+#
+# linear interpolator
+#
+#-------------------------------------------------
+
+print('>>> Building a simple linear interpolator')
+
+lin_interp = interpolate.LinearNDInterpolator(source_x, source_f, rescale=True)
+y_pred_lin = lin_interp(target_x)
+
+print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(y_pred_lin-target_f)))
+print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(y_pred_lin-target_f)/target_f))
+
+#-------------------------------------------------
+#
+# simple estimate of hyperparameters
+#
+#-------------------------------------------------
+
+print("\n>>> Building GP from simple ad hoc estimate for hyperparameters")
 
 if args.verbose:
     print('estimating appropriate hyperparameters and constructing kernel')
@@ -181,23 +193,21 @@ if args.verbose:
 # now, let's guess at appropriate hyperparameters
 ave = np.mean(source_f)       ### mean of the process
 
-### FIXME! pick these based on maximizing the marginal likelihood for (source_f, source_x)
-
 sigma = np.std(source_f) * 1.5  ### variance based on spread of the function
 
 lengths = [                   ### based on the average grid spacing
-    np.mean(np.diff(baryon_chemical_potential[0,:])) * 2.0,
-    np.mean(np.diff(temperature[:,0])) * 2.0,
+    np.mean(np.diff(baryon_chemical_potential[0,:])) * 1.5,
+    np.mean(np.diff(temperature[:,0])) * 1.5,
 ]
-
-# sigma, *lengths = [1.02906526e-01, 5.01750638e+02, 3.58583439e+01]
-# print(f"sigma={sigma}, lengths={lengths}")
 
 # construct a kernel
 kernel = mgpi.CombinedKernel(
     mgpi.SquaredExponentialKernel(sigma, *lengths),
-    mgpi.WhiteNoiseKernel(sigma/1000), # a small white noise component for numerical stability
+    mgpi.WhiteNoiseKernel(sigma/10000), # a small white noise component for numerical stability
 )
+
+if args.verbose:
+    print(kernel)
 
 # construct a general interpolator
 interpolator = mgpi.Interpolator(kernel)
@@ -220,40 +230,37 @@ mean, cov = interpolator.condition(
 )
 mean += ave ### add back in the mean that I substracted
 
-# print('Error (crude estimation of parameters): ', (mean-target_f)/np.diag(cov)**0.5)
-print(f'Simple estimation of parameters: {[sigma, *lengths]}')
-print(f"mape of GP simple estimation:  {mean_absolute_percentage_error(target_f, mean)}")
-print('Error (simple estimation of parameters): ', np.mean((mean-target_f)/np.diag(cov)**0.5))
+print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean-target_f)))
+print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean-target_f)/target_f))
 
-# exit()
+#-------------------------------------------------
+#
+# max likelihood scipy.minimize()
+#
+#-------------------------------------------------
 
-###------------------------------------------------------------------------------------------------
-### max likelihood scipy.minimize()
-###------------------------------------------------------------------------------------------------
-print("---------------------------------------------------------------------------------")
-print("Start calculating hyperparameters that maximizes the log likelihood")
+print("\n>>> maximizing loglikelihood to select hyperparameters")
 
-# init_para_list = [sigma, *lengths]
-# bound_list = [(init_para[i]/1e2, init_para[i]*1e2) for i in range(len(init_para))]
-# optimal_params = interpolator.optimize_kernel(source_x, source_f, init_para, bound_list)
+# define a basic prior
+def logprior(params):
+    bounds = [
+        (0.001, 5.0),    # sigma_0 --> SquaredExponentialKernel
+        (0.1, 40.0),   # length0_0 --> SquaredExponentialKernel
+        (0.1, 40.0),   # length1_0 --> SquaredExponentialKernel
+        (0.000, 0.0001), # sigma_1 --> WhiteNoiseKernel
+    ]
+    for p, (m, M) in zip(params, bounds):
+        if (p < m) or (M < p):
+            return -np.infty
+    else:
+        return 0.0
 
-init_params = {'sigma': sigma, **{f'length{i+1}': length for i, length in enumerate(lengths)}}
-bound_list = {key: (value / 1e3, value * 1e3) for key, value in init_params.items()}
+# optimize subject to this prior
+optimal_params = interpolator.optimize_kernel(source_x, source_f, logprior=logprior, verbose=args.verbose, Verbose=args.time_execution,)
 
-optimal_params = interpolator.optimize_kernel(source_x, source_f, init_params, bound_list)
-
-print("Optimal hyperparameters:", optimal_params)
-
-# sigma_opt, *lengths_opt = optimal_params
-# sigma_opt = optimal_params['sigma']
-# lengths_opt = [optimal_params[key] for key in sorted(optimal_params) if key.startswith('length')]
-
-
-# construct a kernel
-# kernel_optimized = mgpi.CombinedKernel(
-#     mgpi.SquaredExponentialKernel(sigma_opt, *lengths_opt),
-#     mgpi.WhiteNoiseKernel(sigma_opt/1000), # a small white noise component for numerical stability
-# )
+if args.verbose:
+    print('optimized hyperparameters:')
+    print(kernel)
 
 # now let's compute estimates of the speed of sound at the test points
 # optimized_para = mgpi.SampleKernel(kernel_optimized, source_x, source_f)
@@ -262,33 +269,70 @@ mean_optimized, cov_optimized = interpolator.condition(
     target_x,
     source_x,
     source_f - ave,
-    verbose=False, #args.verbose,
-    Verbose=False, #args.time_execution
+    verbose=args.verbose,
+    Verbose=args.time_execution
 )
 mean_optimized += ave ### add back in the mean that I substracted
 
-print(f"mape of GP max LLH:  {mean_absolute_percentage_error(target_f, mean_optimized)}")
-print('Error (estimation max LLH): ', np.mean((mean_optimized-target_f)/np.diag(cov_optimized)**0.5))
-
-# exit()
+print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)))
+print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)/target_f))
 
 
-###--------------------------------------------------------------------------------------------------
-###   sample parameters from likelihood function using MCMC
-###--------------------------------------------------------------------------------------------------
 
-# ------------------------------ new ------------------------------------
-print("---------------------------------------------------------------------------------")
-print("Start sampling using MCMC")
-# sample kernel parameters
-# sample_para = mgpi.SampleKernel(kernel, source_x, source_f)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#-------------------------------------------------
+#
+#   sample parameters from likelihood function using MCMC
+#
+#-------------------------------------------------
+
+print("\n>>> sampling hyperparameters from distribution defined by loglikelihood")
+
+raise NotImplementedError('Reed stopped here')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 chain_length = int(15000*1)
+
 # samples_file_path = 'parameter_samples_thinned.csv'
 autocorr_time_file_path = 'autocorrelation_time_uiuceos_downsample' + str(args.downsample) + '_chainlength' + str(chain_length) + '.log'
 para_sample_file_path = 'parameter_samples_downsample' + str(args.downsample) + '_chainlength' + str(chain_length) + '.csv'
+
 # autocorr_time_file_path = 'autocorrelation_time_uiuceos_downsample.log'
+
 print(f"downsample {args.downsample}")
+
 if not os.path.exists(para_sample_file_path) or not os.path.exists(autocorr_time_file_path):
     print('MC chain file does not exist. Run MCMC...')
     init_para = [sigma, *lengths]
@@ -306,8 +350,8 @@ if not os.path.exists(para_sample_file_path) or not os.path.exists(autocorr_time
     # col_name = ['para'+str(i) for i in range(1, len(init_para)+1)]
     samples_all = sampler.get_chain(flat=True)
     col_name = init_params_dict.keys()
-    samples_df = pd.DataFrame(samples_all, columns=col_name)
-    samples_df.to_csv(para_sample_file_path, index=False)
+#    samples_df = pd.DataFrame(samples_all, columns=col_name)
+#    samples_df.to_csv(para_sample_file_path, index=False)
 
     # get autocorr_time
     autocorr_time = np.mean(sampler.get_autocorr_time())
@@ -334,12 +378,11 @@ elif os.path.exists(para_sample_file_path) and os.path.exists(autocorr_time_file
 
     # pick every #autocorr_time steps
     print(f'Reading MC chain from existing file <{para_sample_file_path}>')
-    samples_thin = pd.read_csv(para_sample_file_path).values[::int(autocorr_time)]
+#    samples_thin = pd.read_csv(para_sample_file_path).values[::int(autocorr_time)]
 
-# exit()
-###------------------------------------------------------------------
-### random sample from the chain
-###------------------------------------------------------------------
+#------------------------
+
+### consider a random sample from the chain
 
 sum_of_mean_sample = np.zeros(len(target_f))
 sum_of_covar_sample = np.zeros((len(target_f),len(target_f)))
@@ -378,8 +421,8 @@ for i in range(num_of_sample):
         target_x,
         source_x,
         source_f - ave,
-        verbose=False, #args.verbose,
-        Verbose=False, #args.time_execution
+        verbose=args.verbose,
+        Verbose=args.time_execution
     )
     mean_sample += ave ### add back in the mean that I substracted
 
@@ -392,279 +435,3 @@ avg_of_mean_sample = sum_of_mean_sample/float(num_of_sample)
 avg_of_covar_sample = sum_of_covar_sample/float(num_of_sample)
 
 print('Error estimate: average of the sample predictions', np.mean((avg_of_mean_sample-target_f)/np.diag(avg_of_covar_sample)**0.5))
-
-# exit()
-
-###------------------------------------------------------------------------------------------------
-### linear interpolator
-###------------------------------------------------------------------------------------------------
-lin_interp = interpolate.LinearNDInterpolator(source_x, source_f, rescale=True)
-y_pred_lin = lin_interp(target_x)
-
-
-#------------------------------------------------------------------------------------------------
-# result analysis
-#------------------------------------------------------------------------------------------------
-print("---------------------------------------------------------------------------------")
-res = pd.DataFrame(target_x, columns=["nB","YQ"])
-res['csq'] = target_f
-res['csq_GP_simple'] = mean
-res['csq_lin'] = y_pred_lin
-res['csq_GP_scipy_maxLLH'] = mean_optimized
-res['csq_GP_MCMC_sample'] = avg_of_mean_sample
-res = res.dropna()
-
-print("Summary of the results:")
-print(f"mape of linear interpolator:   {mean_absolute_percentage_error(res['csq'],res['csq_lin'])}")
-print(f"mape of GP simple estimate:    {mean_absolute_percentage_error(res['csq'],res['csq_GP_simple'])}")
-print(f"mape of GP max LLH esimate:    {mean_absolute_percentage_error(res['csq'],res['csq_GP_scipy_maxLLH'])}")
-print(f"mape of GP MCMC {num_of_sample} sample avg: {mean_absolute_percentage_error(res['csq'],res['csq_GP_MCMC_sample'])}")
-
-
-
-
-exit()
-
-#------------------------
-
-# make some plots of the predicted mean and covariance
-# in particular, compare this to the true function : target_f = f(target_x)
-
-#------------------------
-
-if args.verbose:
-    print('histogram the errors in the interpolator')
-    if args.time_execution:
-        t0 = time.time()
-
-fig = plt.figure(figsize=(8,4))
-
-nbins = int(len(target_f)**0.5)
-
-# absolute error
-ax = plt.subplot(1,2,1)
-ax.hist(mean-target_f, bins=nbins, histtype='step', log=True)
-ax.set_xlabel('$E[f(x)] - f(x)$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-# scaled error
-ax = plt.subplot(1,2,2)
-ax.hist((mean-target_f)/np.diag(cov)**0.5, bins=nbins, histtype='step', log=True)
-ax.set_xlabel('$(E[f(x)] - f(x)]/\sigma_{f(x)}$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-# save
-plt.subplots_adjust(
-    left=0.10,
-    bottom=0.15,
-    top=0.98,
-    right=0.95,
-    wspace=0.15,
-)
-
-tmp = 'error-histograms%s.' % args.tag
-for figtype in args.figtype:
-    path = tmp + figtype
-    if args.verbose:
-        print('    saving : '+path)
-    fig.savefig(path, dpi=args.dpi)
-plt.close(fig)
-
-if args.time_execution:
-    print('    time : %.6f sec' % (time.time()-t0))
-
-#-----------
-
-# plot the distribution of errors across the function's domain
-
-t0 = time.time()
-
-# first, reshape the target data into something I can use
-target_bcp, target_tmp = np.transpose(target_x)
-
-num = len(np.unique(target_bcp))
-shape = (len(target_bcp)//num, num)
-
-target_bcp = target_bcp.reshape(shape)[0,:]
-target_tmp = target_tmp.reshape(shape)[:,0]
-target_f = target_f.reshape(shape)
-mean = mean.reshape(shape)
-stdv = (np.diag(cov)**0.5).reshape(shape)
-
-vmin = np.min([mean, target_f])
-vmax = np.max([mean, target_f])
-
-# now make some plots
-
-fig = plt.figure(figsize=(8,6))
-
-# true function
-ax = plt.subplot(2,3,1)
-mappable = ax.imshow(
-    target_f,
-    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
-    vmin=vmin,
-    vmax=vmax,
-    aspect='auto',
-    origin='lower',
-)
-plt.setp(ax.get_xticklabels(), visible=False)
-ax.set_ylabel('$T\,[\mathrm{MeV}]$')
-ax.set_title('$f(x)$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-cb = plt.colorbar(mappable)
-
-# mean
-ax = plt.subplot(2,3,2)
-mappable = ax.imshow(
-    mean,
-    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
-    vmin=vmin,
-    vmax=vmax,
-    aspect='auto',
-    origin='lower',
-)
-plt.setp(ax.get_xticklabels(), visible=False)
-plt.setp(ax.get_yticklabels(), visible=False)
-ax.set_title('$E[f(x)]$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-cb = plt.colorbar(mappable)
-
-# uncertainty
-ax = plt.subplot(2,3,3)
-mappable = ax.imshow(
-    stdv,
-    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
-    aspect='auto',
-    origin='lower',
-)
-plt.setp(ax.get_xticklabels(), visible=False)
-plt.setp(ax.get_yticklabels(), visible=False)
-ax.set_title('$\sigma_{f(x)}$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-cb = plt.colorbar(mappable)
-
-# absolute error
-ax = plt.subplot(2,3,4)
-mappable = ax.imshow(
-    mean - target_f,
-    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
-    aspect='auto',
-    origin='lower',
-)
-ax.set_xlabel('$\mu_B\,[\mathrm{MeV}]$')
-ax.set_ylabel('$T\,[\mathrm{MeV}]$')
-ax.set_title('$E[f(x)] - f(x)$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-cb = plt.colorbar(mappable)
-
-# relative error
-ax = plt.subplot(2,3,5)
-mappable = ax.imshow(
-    np.log10(np.abs(mean - target_f) / target_f),
-    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
-    aspect='auto',
-    origin='lower',
-)
-ax.set_xlabel('$\mu_B\,[\mathrm{MeV}]$')
-plt.setp(ax.get_yticklabels(), visible=False)
-ax.set_title('$\log_{10}\left[|E[f(x)] - f(x)|/f(x)\\right]$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-cb = plt.colorbar(mappable)
-
-# scaled error
-ax = plt.subplot(2,3,6)
-mappable = ax.imshow(
-    (mean - target_f) / stdv,
-    extent=[np.min(target_bcp), np.max(target_bcp), np.min(target_tmp), np.max(target_tmp)],
-    aspect='auto',
-    origin='lower',
-)
-ax.set_xlabel('$\mu_B\,[\mathrm{MeV}]$')
-plt.setp(ax.get_yticklabels(), visible=False)
-ax.set_title('$(E[f(x)] - f(x))/\sigma_{f(x)}$')
-ax.tick_params(
-    left=True,
-    right=True,
-    top=True,
-    bottom=True,
-    which='both',
-    direction='in',
-)
-
-cb = plt.colorbar(mappable)
-
-# save
-plt.subplots_adjust(
-    left=0.10,
-    bottom=0.10,
-    top=0.90,
-    right=0.95,
-    hspace=0.15,
-    wspace=0.20,
-)
-
-tmp = 'error-surface%s.' % args.tag
-for figtype in args.figtype:
-    path = tmp + figtype
-    if args.verbose:
-        print('    saving : '+path)
-    fig.savefig(path, dpi=args.dpi)
-plt.close(fig)
-
-if args.time_execution:
-    print('    time : %.6f sec' % (time.time()-t0))

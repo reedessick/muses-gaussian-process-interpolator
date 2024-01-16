@@ -62,7 +62,7 @@ class Kernel(object):
     #---
 
     def __str__(self):
-        return '%s(%s)' % (self.__class__.__name__, ', '.join('%s=%.3e'%item for item in self.params_dict.items()))
+        return '%s(%s)' % (self.__class__.__name__, ', '.join('%s=%.6e'%item for item in self.params_dict.items()))
 
     def __repr__(self):
         return self.__str__()
@@ -213,8 +213,8 @@ class CombinedKernel(Kernel):
     #---
 
     @property
-    def params_dict(self):
-        return dict(zip(self._params, np.concatenate([kernel.params for kernel in self.kernels])))
+    def params(self):
+        return np.concatenate([kernel.params for kernel in self.kernels])
 
     @staticmethod
     def _combinedkernel_name(name, index):
@@ -537,7 +537,7 @@ a mean function and a covariance matrix
     # utilities for determining good hyperparameters for the model
     # these are based on the marginal likelihood for the observed data conditioned on the kernel parameters
 
-    def loglikelihood(self, source_x, source_f):
+    def loglikelihood(self, source_x, source_f, verbose=False):
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
         """
         cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
@@ -549,7 +549,7 @@ a mean function and a covariance matrix
 
     #---
 
-    def optimize_kernel(self, source_x, source_f, logprior=None, verbose=False):
+    def optimize_kernel(self, source_x, source_f, logprior=None, verbose=False, Verbose=False):
         """
         Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
         """
@@ -562,21 +562,22 @@ a mean function and a covariance matrix
         if logprior is None: # set prior to be flat
             logprior = lambda x: 0.0
 
-        def target(**params):
-            for key, val in params.items(): # check to make sure parameters are reasonable
-                if val < 0:
-                    return np.infty # return a big number so we avoid this region
-            self.update(**params)
+        def target(params):
+            if any(params <= 0): # check to make sure parameters are reasonable
+                return np.infty # return a big number so we avoid this region
+            self.kernel.update(**dict(zip(self.kernel._params, params)))
+            if Verbose:
+                print('    %s' % self.kernel)
             return - (self.loglikelihood(source_x, source_f) + logprior(params))
 
         ## run the minimizer
-        if args.verbose:
+        if verbose:
             print('extremizing loglikelihood')
             t0 = time.time()
 
         result = _minimize(
             target,
-            self.kernel.params_dict,
+            self.kernel.params, # needs to be a verctor, not a dictionary
             method='TNC',
         )
 
@@ -609,6 +610,7 @@ a mean function and a covariance matrix
             logprior = lambda x: 0.0 # set to be flat
 
         def target(params):
+            self.kernel.update(**dict(zip(self.kernel._params, params)))
             if np.all(params > 0): # check to make sure parameters are reasonable
                 return self.loglikelihood(source_x, source_f) + logprior(params)
             else:
@@ -648,7 +650,7 @@ a mean function and a covariance matrix
         #---
 
         # picking initial positions for walkers
-        if args.verbose:
+        if verbose:
             print('initializing %d walkers (num_dim = %d)' % (num_walkers, num_dim))
             t0 = time.time()
 
