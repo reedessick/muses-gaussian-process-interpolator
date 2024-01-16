@@ -39,6 +39,12 @@ class Kernel(object):
         assert len(params) == len(self._params), 'must specify all parameters!\n\tparams=%s' % self._params
         self.params = np.array(params, dtype=float)
 
+    def __str__(self):
+        return '%s(%s)' % (self.__class__.__name__, ', '.join('%s=%.3e'%item for item in zip(self._params, self.params)))
+
+    def __repr__(self):
+        return self.__str__()
+
     def update(self, **params):
         """update the internal parameters that describe this kernel
         """
@@ -71,8 +77,13 @@ depending on the dimensionality.
         """update self._params and self.params to account for the correct dimensionality of the kernel
         """
         assert len(lengths), 'must specify at least one length'
-        self._params = self._params + tuple('length%d'%ind for ind in range(len(lengths)))
+        self._num_dim = len(lenghts)
+        self._params = self._params + tuple('length%d'%ind for ind in range(self._num_dim))
         self.params = self.params + tuple(lengths)
+
+    @property
+    def num_dim(self):
+        return self._num_dim
 
 #-------------------------------------------------
 
@@ -146,10 +157,23 @@ class CombinedKernel(object):
     """
 
     def __init__(self, *kernels):
+        self._num_dim = None
+        for kernel in kernels:
+            if isinstance(kernel, NDKernel):
+                if num_dim is None:
+                    self._num_dim = kernel.num_dim
+                else:
+                    assert self._num_dim == kernel.num_dim, 'conflict in dimensionality of kernels!'
 
-        raise NotImplementedError
+        raise NotImplementedError('set up map from param names at this level to individual component param names')
 
         self.kernels = kernels
+
+    def __str__(self):
+        raise NotImplementedError('write this to show mapping between CombinedKernel params and individual kernel params')
+
+    def __repr__(self):
+        return self.__str__()
 
     def update(self, **params):
         """update each kernel in turn
