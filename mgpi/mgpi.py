@@ -35,6 +35,13 @@ DEFAULT_NUM_BURNIN = 100
 DEFAULT_NUM_SAMPLES = 1000
 DEFAULT_NUM_WALKERS = None # will set num_walkers based on the dimensionality of the sampling problem
 
+#------------------------
+
+# default parameters for nearest-neighbor interpolator logic
+
+DEFAULT_NUM_NEIGHBORS = 10
+DEFAULT_ORDER_BY_INDEX = 0
+
 #-------------------------------------------------
 
 ### classes to represent simple kernels
@@ -691,9 +698,12 @@ This is based on:
     Abhirup Datta, Sudipto Banerjee, Andrew O. Finley & Alan E. Gelfand (2016) Hierarchical Nearest-Neighbor Gaussian Process Models for Large Geostatistical Datasets, Journal of the American Statistical Association, 111:514, 800-812, DOI: 10.1080/01621459.2015.1044091
     """
 
-    def __init__(self, num_neighbors, kernel):
+    def __init__(self, kernel, num_neighbors=DEFAULT_NUM_NEIGHBORS, order_by_index=DEFAULT_ORDER_BY_INDEX):
         self.num_neighbors = num_neighbors
+        self.order_by_index = order_by_index
         Interpolator.__init__(self, kernel)
+
+    #---
 
     def compress(self, *args, **kwargs):
         raise NotImplementedError
@@ -701,11 +711,10 @@ This is based on:
     def predict(self, *args, **kwargs):
         raise NotImplementedError
 
+    #---
+
     def condition(self, *args, **kwargs):
         raise NotImplementedError
 
     def loglikelihood(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def rvs(self, *args, **kwargs):
         raise NotImplementedError
