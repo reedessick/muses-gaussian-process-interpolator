@@ -122,7 +122,7 @@ class WhiteNoiseKernel(Kernel):
     def cov(self, x1, x2):
         """expect x1, x2 to each have the shape : (Nsamp, Ndim)
         """
-        return self.sigma**2 * np.all(x1 == x2, axis=1)
+        return self.params[0]**2 * np.all(x1 == x2, axis=1)
 
 #------------------------
 
