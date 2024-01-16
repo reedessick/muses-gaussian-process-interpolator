@@ -11,20 +11,20 @@ import warnings
 import numpy as np
 
 try:
-    from scipy.special import gamma
-    from scipy.special import kv as bessel_k
+    from scipy.special import gamma as _gamma
+    from scipy.special import kv as _bessel_k
 except:
-    gamma = bessel_k = None
+    _gamma = _bessel_k = None
 
 try:
-    from scipy.optimize import minimize
+    from scipy.optimize import minimize as _minimize
 except:
-    minimize = None
+    _minimize = None
 
 try:
-    import emcee
+    import emcee as _emcee
 except ImportError:
-    emcee = None
+    _emcee = None
 
 #-------------------------------------------------
 
@@ -107,9 +107,9 @@ class MaternKernel(NDKernel):
     def __init__(self, order, sigma, *lengths):
 
         # check that we could import required functions
-        if gamma is None:
+        if _gamma is None:
             raise ImportError('could not import scipy.special.gamma')
-        if bessel_k is None:
+        if _bessel_k is None:
             raise ImportError('could not import scipy.special.kv')
 
         # now set up params
@@ -125,7 +125,7 @@ class MaternKernel(NDKernel):
         s = self.params[1] # sigma
         lengths = self.params[2:]
         diff = (2*o)**0.5 * np.sum((x1-x2)**2/lengths**2, axis=1)**0.5
-        return s**2 * (2**(1-o) / gamma(o)) * diff**o * bessel_k(o, diff)
+        return s**2 * (2**(1-o) / _gamma(o)) * diff**o * _bessel_k(o, diff)
 
 #------------------------
 
@@ -157,7 +157,11 @@ class CombinedKernel(object):
     """
 
     def __init__(self, *kernels):
-        self._num_dim = None
+
+        # check that we have a reasonable number of kernels
+        assert len(kernels) >= 2, 'must supply at least 2 kernels'
+        self._num_kernels = len(kernels)
+
         for kernel in kernels:
             if isinstance(kernel, NDKernel):
                 if num_dim is None:
@@ -165,30 +169,58 @@ class CombinedKernel(object):
                 else:
                     assert self._num_dim == kernel.num_dim, 'conflict in dimensionality of kernels!'
 
-        raise NotImplementedError('set up map from param names at this level to individual component param names')
+        # create map for _params between kernels and their parameter names
+        self._num_dim = None
+        self._params = ()
+        for ind, kernel in enumerate(kernels):
+
+            # check that dimensionality agrees between all kernels
+            if isinstance(kernel, NDKernel):
+                if num_dim is None:
+                    self._num_dim = kernel.num_dim
+                else:
+                    assert self._num_dim == kernel.num_dim, 'conflict in dimensionality of kernels!'
+
+            # add parameters to the tuple
+            self._params = self._params + tuple(self.combinedkernel_name(name, ind) for name in kernel._params)
 
         self.kernels = kernels
 
+    #---
+
+    @staticmethod
+    def _combinedkernel_name(name, index):
+        return '%s_%s' % (name, index)
+
+    @staticmethod
+    def _kernel_name(name):
+        name = name.split('_')
+        return '_'.join(name[:-1]), int(name[-1])
+        
+    #---
+
     def __str__(self):
-        raise NotImplementedError('write this to show mapping between CombinedKernel params and individual kernel params')
+        ans = self.__class__.__name__
+        for ind, kernel in enumerate(self.kernels):
+            ans += '\n\t%d\t%s' % (ind, str(kernel))
 
     def __repr__(self):
         return self.__str__()
 
+    #---
+
     def update(self, **params):
         """update each kernel in turn
         """
-        for k in self.kernels:
-            k.update(**params)
-        
-    # def update(self, **params):
-    #     # Update SquaredExponentialKernel
-    #     if 'sigma' in params and 'lengths' in params:
-    #         self.kernels[0].update(sigma=params['sigma'], lengths=params['lengths'])
+        # map the parameters into smaller dictionaries for separate kernels
+        ans = defaultdict(dict)
+        for key, val in params.items():
+            name, ind = self._kernel_name(key)
+            ans[ind][name] = val
 
-    #     # Update WhiteNoiseKernel with adjusted sigma
-    #     if 'whitenoise_sigma' in params:
-    #         self.kernels[1].update(sigma=params['sigma'] / 1000)
+        # now iterate and update each kernel in turn
+        for ind, params in ans.items():
+            self.kernels[ind].update(**params)
 
     def cov(self, *args, **kwargs):
         """iterate over contained kernels and sum the corresponding covariances
@@ -524,7 +556,7 @@ a mean function and a covariance matrix
 
         :initial_params: Dictionary of initial guess for parameters {"sigma": sigma, "length1": length1, etc.}
         """
-        if minimize is None:
+        if _minimize is None:
             raise ImportError('could not import scipy.optimize.minimize')
 
         # raise NotImplementedError('should be overwritten by child classes')
@@ -536,7 +568,7 @@ a mean function and a covariance matrix
         bounds = [bound_list[key] for key in initial_params]
 
         # Minimize the negative log likelihood
-        result = minimize(lambda params: self.negative_log_likelihood(source_x, source_f, 
+        result = _minimize(lambda params: self.negative_log_likelihood(source_x, source_f, 
                                                                       dict(zip(initial_params.keys(), params))), 
                           initial_values, 
                           bounds=(bounds), 
@@ -563,7 +595,7 @@ a mean function and a covariance matrix
         
         :return: the MCMC sampler object
         """
-        if emcee is None:
+        if _emcee is None:
             raise ImportError('could not import emcee')
 
         # raise NotImplementedError('should be overwritten by child classes')
