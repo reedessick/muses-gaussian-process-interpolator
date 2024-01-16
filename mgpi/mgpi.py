@@ -28,6 +28,14 @@ except ImportError:
 
 #-------------------------------------------------
 
+# default parameters for MCMC sampling
+
+DEFAULT_NUM_BURNIN = 100
+DEFAULT_NUM_SAMPLES = 1000
+DEFAULT_NUM_WALKERS = None # will set num_walkers based on the dimensionality of the sampling problem
+
+#-------------------------------------------------
+
 ### classes to represent simple kernels
 
 class Kernel(object):
@@ -544,6 +552,10 @@ a mean function and a covariance matrix
 #        bounds = [bound_list[key] for key in initial_params]
 
         ## run the minimizer
+        if args.verbose:
+            print('extremizing loglikelihood')
+           t0 = time.time()
+
         result = _minimize(
             target,
             self.kernel.params_dict,
@@ -551,102 +563,113 @@ a mean function and a covariance matrix
             method='TNC',
         )
 
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
         # update the kernel to match the optimal parameters
         self.kernel.update(**dict(zip(self.kernel._params, result.x)))
 
         # return
         return self.kernel.params_dict
 
+    #--------------------
+
+    def _instantiate_sampler(self, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
+
+        # check dimensionality of the sampling problem
+        num_dim = len(self.kernel.params)
+
+        if num_walkers is None:
+            num_walkers = 2*num_dim
+
+        # instantiate sampler
+        if verbose:
+            print('initializing sampler')
+            t0 = time.time()
+
+        ## define the target distribution (loglikelihood)
+        def target(params):
+            if np.all(params > 0): # check to make sure parameters are reasonable
+                return self.loglikelihood(source_x, source_f) # flat (but impropper) priors
+            else:
+                return -np.infty # avoid these regions of parameter space
+
+        sampler = emcee.EnsembleSampler(num_walkers, num_dim, target)
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # return
+        return sampler
+
     #---
 
-    def sample_kernel(self, *args, **kwargs):
-        raise NotImplementedError('''
-
-
-    def sample_kernel(self, source_x, source_f, init_para_dict, burn_in=100, nsteps=100, nwalkers=None):
+    def sample_kernel(
+            self,
+            source_x,
+            source_f,
+            num_burnin=DEFAULT_NUM_BURNIN,
+            num_samples=DEFAULT_NUM_SAMPLES,
+            num_walkers=DEFAULT_NUM_WALKERS,
+            verbose=False,
+        ):
         """
         Sample the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
-        
-        :param init_para: Dictionary of initial guess for parameters, {"sigma": sigma, "length1": length1, etc.}
-        :param nwalkers: Number of walkers for the MCMC sampler
-        :param burn_in: Number of burn-in steps for the MCMC sampler
-        :param nsteps: Number of steps to run the MCMC sampler
-        
-        :return: the MCMC sampler object
         """
         if _emcee is None:
             raise ImportError('could not import emcee')
 
-        # raise NotImplementedError('should be overwritten by child classes')
+        #---
 
-        # initial parameters
+        # set up the sampler
+        sampler = self._instantiate_sampler(num_walkers=num_walkers, verbose=verbose)
+
+        #---
+
+        # picking initial positions for walkers
+        if args.verbose:
+            print('initializing %d walkers (num_dim = %d)' % (num_walkers, num_dim))
+           t0 = time.time()
+
+        raise NotImplementedError('''
         init_para = list(init_para_dict.values())
-
-        n_dim = len(init_para_dict)
-        if nwalkers is None:
-            nwalkers = 2*n_dim
-            # print("check point 1")
-            # print("nwalkers = ", nwalkers)
 
         # Initialize walkers
         bounds = [(param - param / 8, param + param / 8) for param in init_para]
 
-        walkers = np.array([np.random.uniform(low, high, nwalkers) for low, high in bounds]).T
-        # print("walkers: ")
-        # print(walkers)
-
-        # give sampler negative_log_posterior
-        # sampler = emcee.EnsembleSampler(nwalkers, n_dim, self.negative_log_posterior)
-        sampler = emcee.EnsembleSampler(nwalkers, n_dim,
-                                        lambda params: self.negative_log_likelihood(source_x, source_f,
-                                                                      dict(zip(init_para_dict.keys(), params)))
-                                        )
-
-        # burn-in steps
-        print('running MCMC burn-in with {:d} steps'.format(burn_in))
-        start = time.time()
-        state = sampler.run_mcmc(walkers, burn_in)
-        sampler.reset()
-        end = time.time()
-        print('    time : %.6f sec' % (end - start))
-
-        # Reset and run the main MCMC sampling
-        # at each step, calculate the log posterior at 
-        # the current position and the new position
-        # update or not using Metropolis-Hastings
-        print('running MCMC sampling with {:d} steps'.format(nsteps))
-        start = time.time()
-        sampler.run_mcmc(state, nsteps)
-        end = time.time()
-        print('    time : %.6f sec' % (end - start))
-
-        # Extract samples
-        # samples = sampler.get_chain(flat=True)
-
-        print("Mean acceptance fraction: {0:.3f}".format(
-                np.mean(sampler.acceptance_fraction))
-        )
-
-        # print("Mean autocorrelation time: {0:.3f} steps".format(
-        #         np.mean(sampler.get_autocorr_time()))
-        # )
-
-        # self.autocorr_time = sampler.get_autocorr_time()
-
-        # Optionally, calculate and append log likelihood values
-        # print('calculating likelihood for all samples in the chain')
-        # start = time.time()
-        # LLH_value = np.apply_along_axis(lambda row: self.negative_log_likelihood(row), axis=1, arr=samples)
-        # end = time.time()
-        # print('    time : %.6f sec' % (end - start))
-        # samples_with_LLH = np.column_stack((samples, LLH_value))
-
-        # randomly draw some? or have this part in the test?
-
-        # return #samples_with_LLH
-        # return samples
-        return sampler
+        state = np.array([np.random.uniform(low, high, nwalkers) for low, high in bounds]).T
 ''')
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        # running burn-in
+        if verbose:
+            print('running burn-in with %d steps' % num_burnin)
+            t0 = time.time()
+
+        state = sampler.run_mcmc(state, num_burnin)
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        #---
+
+        # generate production samples
+
+        if verbose:
+            print('drawing %d samples' % num_samples)
+            t0 = time.time()
+
+        sampler.run_mcmc(state, num_samples)
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # return
+        return sampler.get_chain() # return array with shape: (num_samples, num_walkers, num_dim)
 
 #------------------------
 
