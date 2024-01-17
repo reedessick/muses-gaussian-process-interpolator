@@ -29,6 +29,12 @@ except ImportError:
 
 #-------------------------------------------------
 
+# default method for optimization
+
+DEFAULT_METHOD = 'TNC' # used within scipy.optimize.minimize
+
+#------------------------
+
 # default parameters for MCMC sampling
 
 DEFAULT_NUM_BURNIN = 100
@@ -549,7 +555,7 @@ a mean function and a covariance matrix
 
     #---
 
-    def optimize_kernel(self, source_x, source_f, logprior=None, verbose=False, Verbose=False):
+    def optimize_kernel(self, source_x, source_f, method=DEFAULT_METHOD, logprior=None, verbose=False, Verbose=False):
         """
         Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
         """
@@ -579,7 +585,7 @@ a mean function and a covariance matrix
         result = _minimize(
             target,
             self.kernel.params, # needs to be a verctor, not a dictionary
-            method='TNC',
+            method=method,
         )
 
         if verbose:
