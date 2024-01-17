@@ -219,11 +219,6 @@ interpolator = mgpi.Interpolator(kernel)
 if args.time_execution:
     print('    time : %.6f sec' % (time.time()-t0))
 
-if args.verbose:
-    print('>>> guestimate hyperparameters:')
-    print(kernel)
-    print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
-
 #------------------------
 
 if args.verbose:
