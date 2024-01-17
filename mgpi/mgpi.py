@@ -726,16 +726,78 @@ This is based on:
 
     #---
 
-    def compress(self, *args, **kwargs):
-        raise NotImplementedError
+    # methods pecular to the NNGP algorithm
+    # effectively, building a specific decomposition of the covariance matrix
 
-    def predict(self, *args, **kwargs):
+    def _2sorted(self, source_x, source_f=None):
+        """sort training data to put it in increasing order
+        """
+        order = np.argsort(source_x[:,self.order_by_index])
+        if source_f is None:
+            return source_x[order]
+        else:
+            return source_x[order], source_f[order]
+
+    def _2neighbors(self, target_x, source_x):
+        """identify which elements in source_x (assumed sorted) are neighbors of target_x
+        """
+        source_x = source_x[:,self.order_by_index]
+        inds = np.arange(len(source_x))
+
+        # return a list of the indexes of the neighboring sets for each target
+        # NOTE this may not do what we want if there are ties...
+        return [inds[source_x < x][-self.num_neighbors:] for x in target_x[:,self.order_by_index]]
+
+    def _2diag(self, source_x, source_f, verbose=False):
+        """construct the diagonal of the cholesky decomposition and the predicted means
+        """
+        source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
+        neighbors = self._2neighbors(source_x, source_x)       # find neighbors within the training data
+
+        # iterate and compute diagonal elements of covariance matrix
+        n = len(source_x)
+        diag = np.empty(n, dtype=float)
+        mean = np.empty(n, dtype=float)
+
+        # FIXME? can I do the following calculation without the loop in python (which is slow...)?
+
+        for ind, (x, f, n) in enumerate(zip(source_x, source_f, neighbors)):
+            x = np.array([x]) # cast the the correct shape
+
+            if len(n) == 0: # no neighbors -> just the covariance at this point
+                mean[ind] = 0.0 # we assume zero-mean process
+                diag[ind] = self.kernel.cov(x, x)[0]
+
+            else: # run the normal GP conditioning but restricted to the neighbor set
+                m, c = Interpolator.condition(self, x, source_x[n], source_f[n], verbose=verbose)
+                mean[ind] = m
+                diag[ind] = c[0,0]
+
+        # return
+        return mean, diag
+
+    def _2cholesky(self, source_x, source_f):
         raise NotImplementedError
 
     #---
 
-    def condition(self, *args, **kwargs):
+    def compress(self, source_x, source_f, verbose=False, Verbose=False):
         raise NotImplementedError
 
-    def loglikelihood(self, *args, **kwargs):
+    def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
         raise NotImplementedError
+
+    #---
+
+    def condition(self, target_x, source_x, source_f, verbose=False, Verbose=False):
+        raise NotImplementedError
+
+    def loglikelihood(self, source_x, source_f, verbose=False):
+        """compute the loglikelihood using the NNGP decomposition of the covariance matrix
+        """
+        # first, compute the diagonal of the cholesky decomposition of the covariance matrix
+        # NOTE! this is all we need to take the determinant of this decomposition
+        mean, diag = self._2diag(source_x, source_f, verbose=verbose)
+
+        # loglike is the sum of independnet 1D Gaussians
+        return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)
