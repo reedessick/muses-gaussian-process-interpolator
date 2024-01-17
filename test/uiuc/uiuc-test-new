@@ -206,14 +206,16 @@ kernel = mgpi.CombinedKernel(
     mgpi.WhiteNoiseKernel(sigma/10000), # a small white noise component for numerical stability
 )
 
-if args.verbose:
-    print(kernel)
-
 # construct a general interpolator
 interpolator = mgpi.Interpolator(kernel)
 
 if args.time_execution:
     print('    time : %.6f sec' % (time.time()-t0))
+
+if args.verbose:
+    print('>>> guestimate hyperparameters:')
+    print(kernel)
+    print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
 
 #------------------------
 
@@ -225,10 +227,14 @@ mean, cov = interpolator.condition(
     target_x,
     source_x,
     source_f - ave,
-    verbose=args.verbose,
     Verbose=args.time_execution,
 )
 mean += ave ### add back in the mean that I substracted
+
+if args.verbose:
+    print('>>> guestimate hyperparameters:')
+    print(kernel)
+    print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
 
 print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean-target_f)))
 print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean-target_f)/target_f))
@@ -247,7 +253,7 @@ def logprior(params):
         (0.001, 5.0),    # sigma_0 --> SquaredExponentialKernel
         (0.1, 40.0),   # length0_0 --> SquaredExponentialKernel
         (0.1, 40.0),   # length1_0 --> SquaredExponentialKernel
-        (0.000, 0.0001), # sigma_1 --> WhiteNoiseKernel
+        (0.000, 1.0), # sigma_1 --> WhiteNoiseKernel
     ]
     for p, (m, M) in zip(params, bounds):
         if (p < m) or (M < p):
@@ -256,11 +262,12 @@ def logprior(params):
         return 0.0
 
 # optimize subject to this prior
-optimal_params = interpolator.optimize_kernel(source_x, source_f, logprior=logprior, verbose=args.verbose, Verbose=args.time_execution,)
-
-if args.verbose:
-    print('optimized hyperparameters:')
-    print(kernel)
+optimal_params = interpolator.optimize_kernel(
+    source_x,
+    source_f,
+    logprior=logprior,
+    Verbose=args.time_execution,
+)
 
 # now let's compute estimates of the speed of sound at the test points
 # optimized_para = mgpi.SampleKernel(kernel_optimized, source_x, source_f)
@@ -269,10 +276,14 @@ mean_optimized, cov_optimized = interpolator.condition(
     target_x,
     source_x,
     source_f - ave,
-    verbose=args.verbose,
     Verbose=args.time_execution
 )
 mean_optimized += ave ### add back in the mean that I substracted
+
+if args.verbose:
+    print('>>> optimized hyperparameters:')
+    print(kernel)
+    print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
 
 print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)))
 print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)/target_f))

@@ -563,12 +563,13 @@ a mean function and a covariance matrix
             logprior = lambda x: 0.0
 
         def target(params):
-            if any(params <= 0): # check to make sure parameters are reasonable
+            if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
                 return np.infty # return a big number so we avoid this region
             self.kernel.update(**dict(zip(self.kernel._params, params)))
+            ans = self.loglikelihood(source_x, source_f) + logprior(params)
             if Verbose:
-                print('    %s' % self.kernel)
-            return - (self.loglikelihood(source_x, source_f) + logprior(params))
+                print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
+            return -ans
 
         ## run the minimizer
         if verbose:
