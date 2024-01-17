@@ -319,8 +319,8 @@ outpath = os.path.basename(__file__) + '-samples.hdf'
 if args.verbose:
     print('saving samples to: '+outpath)
 with h5py.File(outpath, 'w') as obj:
-    obj.create_dataset(data=kernel._params)
-    obj.create_dataset(data=samples)
+    obj.create_dataset(name='params', data=kernel._params)
+    obj.create_dataset(name='samples', data=samples)
 
 #------------------------
 
@@ -329,7 +329,7 @@ with h5py.File(outpath, 'w') as obj:
 if args.verbose:
     print('marginalizing over %d samples to compute average prediction' % args.num_samples_for_average)
 
-mean_marginalized = 0.0
+mean_marg = 0.0
 
 # generate a random subset of samples
 samples = np.transpose([samples[:,:,ind].flatten() for ind in range(len(kernel._params))]+[logprob.flatten()])
@@ -357,11 +357,11 @@ for params in samples[:args.num_samples_for_average]:
     _mean += ave ### add back in the mean that I substracted
 
     # add to running average
-    mean_marginalized += _mean
+    mean_marg += _mean
 
 # average over the number of samples taken
-mean_marginalize /= args.num_samples_for_average
+mean_marg /= args.num_samples_for_average
 
 # report
-print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_marginalized-target_f)))
-print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_marginalized-target_f)/target_f))
+print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_marg-target_f)))
+print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_marg-target_f)/target_f))
