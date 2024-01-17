@@ -782,14 +782,20 @@ This is based on:
     #---
 
     def compress(self, source_x, source_f, verbose=False, Verbose=False):
+        """compress the training set using the NNGP decomposition of the covariance matrix
+        """
         raise NotImplementedError
 
     def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
+        """used the compressed representation of the training set to predict the mean at arbitrary points
+        """
         raise NotImplementedError
 
     #---
 
     def condition(self, target_x, source_x, source_f, verbose=False, Verbose=False):
+        """compute conditioned distriution using the NNGP decomposition of the covariance matrix
+        """
         raise NotImplementedError
 
     def loglikelihood(self, source_x, source_f, verbose=False):
