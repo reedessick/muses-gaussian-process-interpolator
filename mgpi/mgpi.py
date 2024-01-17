@@ -714,8 +714,8 @@ This is based on:
     """
 
     def __init__(self, kernel, num_neighbors=DEFAULT_NUM_NEIGHBORS, order_by_index=DEFAULT_ORDER_BY_INDEX):
-        self.num_neighbors = num_neighbors
-        self.order_by_index = order_by_index
+        self.num_neighbors = num_neighbors   # the number of neighbors retained in the algorithm
+        self.order_by_index = order_by_index # order samples by the values in this index
         Interpolator.__init__(self, kernel)
 
     #---
