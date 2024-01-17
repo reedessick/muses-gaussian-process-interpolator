@@ -45,12 +45,17 @@ parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
     help='downsample the input data to keep only 1 sample out of this many. \
 DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 
+parser.add_argument('--num-burnin', default=mgpi.DEFAULT_NUM_BURNIN, type=int)
+parser.add_argument('--num-samples', default=mgpi.DEFAULT_NUM_SAMPLES, type=int)
+parser.add_argument('--num-samples-for-average', default=50, type=int,
+    help='the number of samples used when computing the average prediction')
+
+parser.add_argument('--seed', default=None, type=int)
+
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('--time-execution', default=False, action='store_true')
 
 parser.add_argument('-t', '--tag', default='', type=str)
-parser.add_argument('--figtype', default=[], type=str, action='append')
-parser.add_argument('--dpi', default=200, type=float)
 
 args = parser.parse_args()
 
@@ -59,8 +64,10 @@ args.verbose |= args.time_execution
 if args.tag:
     args.tag = "_"+args.tag
 
-if not args.figtype:
-    args.figtype.append('png')
+if args.seed is not None:
+    if args.verbose:
+        print('setting numpy.random.seed=%d' % args.seed)
+    np.random.seed(args.seed)
 
 #-------------------------------------------------
 
@@ -169,7 +176,7 @@ if args.verbose:
 #
 #-------------------------------------------------
 
-print('>>> Building a simple linear interpolator')
+print('\n>>> Building a simple linear interpolator')
 
 lin_interp = interpolate.LinearNDInterpolator(source_x, source_f, rescale=True)
 y_pred_lin = lin_interp(target_x)
@@ -296,133 +303,65 @@ print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-
 
 print("\n>>> sampling hyperparameters from distribution defined by loglikelihood")
 
-raise NotImplementedError('Reed stopped here')
+# obtain samples
+samples, sampler = interpolator.sample_kernel(
+    source_x,
+    source_f,
+    logprior=logprior,
+    num_burnin=args.num_burnin,
+    num_samples=args.num_samples,
+    num_walkers=None, # choose this automatically
+    Verbose=args.time_execution,
+)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-chain_length = int(15000*1)
-
-# samples_file_path = 'parameter_samples_thinned.csv'
-autocorr_time_file_path = 'autocorrelation_time_uiuceos_downsample' + str(args.downsample) + '_chainlength' + str(chain_length) + '.log'
-para_sample_file_path = 'parameter_samples_downsample' + str(args.downsample) + '_chainlength' + str(chain_length) + '.csv'
-
-# autocorr_time_file_path = 'autocorrelation_time_uiuceos_downsample.log'
-
-print(f"downsample {args.downsample}")
-
-if not os.path.exists(para_sample_file_path) or not os.path.exists(autocorr_time_file_path):
-    print('MC chain file does not exist. Run MCMC...')
-    init_para = [sigma, *lengths]
-    init_params_dict = {'sigma': sigma, **{f'length{i+1}': length for i, length in enumerate(lengths)}}
-    print(f'initial guess for hyperparameters: {init_params_dict}')
-
-    # sampler is an emcee.EnsembleSampler() obj returned from sample_kernel
-    start = time.time()
-    sampler = interpolator.sample_kernel(source_x, source_f, init_params_dict, burn_in=100, nsteps=chain_length, nwalkers=None)
-    end = time.time()
-    computation_time_autocorr = end - start
-    print('    time : %.6f sec' % (computation_time_autocorr))
-    print('sampling finished')
-
-    # col_name = ['para'+str(i) for i in range(1, len(init_para)+1)]
-    samples_all = sampler.get_chain(flat=True)
-    col_name = init_params_dict.keys()
-#    samples_df = pd.DataFrame(samples_all, columns=col_name)
-#    samples_df.to_csv(para_sample_file_path, index=False)
-
-    # get autocorr_time
-    autocorr_time = np.mean(sampler.get_autocorr_time())
-    print(f'autocorrelation done. autocorrelation = {autocorr_time}')
-    # pick every #autocorr_time steps
-    samples_thin = sampler.get_chain(flat=True, thin = int(autocorr_time))
-    print('samples_thin done (picking samples every #autocorr_time steps)')
-
-    # Saving autocorrelation time to a text file
-    with open(autocorr_time_file_path, 'w') as file:
-        file.write(f"mean autocorrelation time:\n")
-        file.write(f"{autocorr_time}")
-        file.write(f"\n")
-        file.write(f"computation time (sec): \n")
-        file.write(f"{computation_time_autocorr}")
-
-    print("Data saved. (samples and antocorrelation time)")
-
-elif os.path.exists(para_sample_file_path) and os.path.exists(autocorr_time_file_path):
-    with open(autocorr_time_file_path, 'r') as file:
-        read_info = [line.strip() for line in file]
-        autocorr_time = float(read_info[1])
-    print(f'autocorrelation time (sec): {autocorr_time}')
-
-    # pick every #autocorr_time steps
-    print(f'Reading MC chain from existing file <{para_sample_file_path}>')
-#    samples_thin = pd.read_csv(para_sample_file_path).values[::int(autocorr_time)]
+# save samples to disk
+outpath = os.path.basename(__file__) + '-samples.hdf'
+if args.verbose:
+    print('saving samples to: '+outpath)
+with h5py.File(outpath, 'w') as obj:
+    obj.create_dataset(data=kernel._params)
+    obj.create_dataset(data=samples)
 
 #------------------------
 
-### consider a random sample from the chain
+# average over the chain to marginalize over hyperparameters
 
-sum_of_mean_sample = np.zeros(len(target_f))
-sum_of_covar_sample = np.zeros((len(target_f),len(target_f)))
-# print(samples_thin.shape)
+if args.verbose:
+    print('marginalizing over %d samples to compute average prediction' % args.num_samples_for_average)
 
-num_of_sample = 15
-for i in range(num_of_sample):
-    random_index = np.random.choice(samples_thin.shape[0])
-    # random_row = samples_thin.iloc[random_index]
-    random_row = samples_thin[random_index]
-    # print(f"sampling from the chain... sample #{i+1}, selected sample: {random_row}")
-    # print(f"Randomly selected row: {random_row}")
+mean_marginalized = 0.0
 
-    sigma_sample, *lengths_sample = random_row #[1.02906526e-01, 5.01750638e+02, 3.58583439e+01]
-    sample_params_dict = {'sigma': sigma_sample, **{f'length{i+1}': length for i, length in enumerate(lengths_sample)}}
-    # print(f"sample_params_dict = {sample_params_dict}")
+# generate a random subset of samples
+samples = np.transpose([samples[:,:,ind].flatten() for ind in range(len(kernel._params))])
 
-    # construct a kernel
-    # kernel_sample = mgpi.CombinedKernel(
-    #     mgpi.SquaredExponentialKernel(sigma_sample, *lengths_sample),
-    #     mgpi.WhiteNoiseKernel(sigma_sample/1000), # a small white noise component for numerical stability
-    # )
-    # print("kernel constructed")
+order = np.arange(len(samples[0]))
+np.random.shuffle(order)
 
-    # now let's compute estimates of the speed of sound at the test points
-    # sample_para = mgpi.SampleKernel(kernel_sample, source_x, source_f)
+for params in samples[:args.num_samples_for_average]:
 
-    # print(f"before update, sqexp:      sigma={interpolator.kernel.kernels[0].sigma}, lengths={interpolator.kernel.kernels[0].lengths}")
-    # print(f"before update, whitenoise: sigma={interpolator.kernel.kernels[1].sigma}")
+    # update hyperparameters
+    kernel.update(**dict(zip(kernel._params, params)))
 
-    interpolator.kernel.update(**sample_params_dict)
-    # print(f"after update, sqexp:      sigma={interpolator.kernel.kernels[0].sigma}, lengths={interpolator.kernel.kernels[0].lengths}")
-    # print(f"after update, whitenoise: sigma={interpolator.kernel.kernels[1].sigma}")
+    if args.verbose:
+        print('>>> hyperparameters:')
+        print(kernel)
+        print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
 
-    mean_sample, cov_sample = interpolator.condition(
+    # predict
+    _mean, _ = interpolator.condition(
         target_x,
         source_x,
         source_f - ave,
-        verbose=args.verbose,
         Verbose=args.time_execution
     )
-    mean_sample += ave ### add back in the mean that I substracted
+    _mean += ave ### add back in the mean that I substracted
 
-    # print(f"mean_sample: {mean_sample}")
+    # add to running average
+    mean_marginalized += _mean
 
-    sum_of_mean_sample += mean_sample
-    sum_of_covar_sample += cov_sample
+# average over the number of samples taken
+mean_marginalize /= args.num_samples_for_average
 
-avg_of_mean_sample = sum_of_mean_sample/float(num_of_sample)
-avg_of_covar_sample = sum_of_covar_sample/float(num_of_sample)
-
-print('Error estimate: average of the sample predictions', np.mean((avg_of_mean_sample-target_f)/np.diag(avg_of_covar_sample)**0.5))
+# report
+print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_marginalized-target_f)))
+print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_marginalized-target_f)/target_f))

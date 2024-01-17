@@ -9,3 +9,11 @@ The interpolator can be tested via
     --tag uiuc-equation_of_state \
     --time-execution
 ```
+
+```
+./uiuc-test-new
+     ../../etc/uiuc/equation_of_state.csv.gz
+     --downsample 10
+    --tag uiuc-equation_of_state \
+     -v
+```

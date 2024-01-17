@@ -593,7 +593,10 @@ a mean function and a covariance matrix
 
     #--------------------
 
-    def _instantiate_sampler(self, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
+    def _instantiate_sampler(self, source_x, source_f, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
+
+        if _emcee is None:
+            raise ImportError('could not import emcee')
 
         # check dimensionality of the sampling problem
         num_dim = len(self.kernel.params)
@@ -617,13 +620,13 @@ a mean function and a covariance matrix
             else:
                 return -np.infty # avoid these regions of parameter space
 
-        sampler = emcee.EnsembleSampler(num_walkers, num_dim, target)
+        sampler = _emcee.EnsembleSampler(num_walkers, num_dim, target)
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
         # return
-        return sampler
+        return sampler, (num_dim, num_walkers)
 
     #---
 
@@ -636,17 +639,23 @@ a mean function and a covariance matrix
             num_samples=DEFAULT_NUM_SAMPLES,
             num_walkers=DEFAULT_NUM_WALKERS,
             verbose=False,
+            Verbose=False,
         ):
         """
         Sample the kernel parameters from a distribution defined by loglikelihood(source_x, source_f)
         """
-        if _emcee is None:
-            raise ImportError('could not import emcee')
+        verbose |= Verbose
 
         #---
 
         # set up the sampler
-        sampler = self._instantiate_sampler(logprior, num_walkers=num_walkers, verbose=verbose)
+        sampler, (num_dim, num_walkers) = self._instantiate_sampler(
+            source_x,
+            source_f,
+            logprior,
+            num_walkers=num_walkers,
+            verbose=verbose,
+        )
 
         #---
 
@@ -656,7 +665,7 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         # scatter parameters in a unit ball around the initial guess
-        state = self.kernel.params * (1 + random.normal(size=(num_walkers, num_dim))/3)
+        state = self.kernel.params * (1 + np.random.normal(size=(num_walkers, num_dim))/3)
 
         # make sure all parameters are initially positive
         state = np.abs(state)
@@ -671,7 +680,7 @@ a mean function and a covariance matrix
             print('running burn-in with %d steps' % num_burnin)
             t0 = time.time()
 
-        state = sampler.run_mcmc(state, num_burnin)
+        state = sampler.run_mcmc(state, num_burnin, progress=Verbose)
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
@@ -684,13 +693,13 @@ a mean function and a covariance matrix
             print('drawing %d samples' % num_samples)
             t0 = time.time()
 
-        sampler.run_mcmc(state, num_samples)
+        sampler.run_mcmc(state, num_samples, progress=Verbose)
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
         # return
-        return sampler.get_chain() # return array with shape: (num_samples, num_walkers, num_dim)
+        return sampler.get_chain(), sampler # return array with shape: (num_samples, num_walkers, num_dim) and the sampler
 
 #------------------------
 
