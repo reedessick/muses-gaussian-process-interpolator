@@ -64,6 +64,8 @@ args.verbose |= args.time_execution
 if args.tag:
     args.tag = "_"+args.tag
 
+args.num_samples_for_average = min(args.num_samples_for_average, args.num_samples) # can't average over more samples than we draw
+
 if args.seed is not None:
     if args.verbose:
         print('setting numpy.random.seed=%d' % args.seed)
@@ -304,7 +306,7 @@ print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-
 print("\n>>> sampling hyperparameters from distribution defined by loglikelihood")
 
 # obtain samples
-samples, sampler = interpolator.sample_kernel(
+samples, logprob, sampler = interpolator.sample_kernel(
     source_x,
     source_f,
     logprior=logprior,
@@ -332,7 +334,7 @@ if args.verbose:
 mean_marginalized = 0.0
 
 # generate a random subset of samples
-samples = np.transpose([samples[:,:,ind].flatten() for ind in range(len(kernel._params))])
+samples = np.transpose([samples[:,:,ind].flatten() for ind in range(len(kernel._params))]+[logprob.flatten()])
 
 order = np.arange(len(samples[0]))
 np.random.shuffle(order)
@@ -340,12 +342,12 @@ np.random.shuffle(order)
 for params in samples[:args.num_samples_for_average]:
 
     # update hyperparameters
-    kernel.update(**dict(zip(kernel._params, params)))
+    kernel.update(**dict(zip(kernel._params, params[:-1])))
 
     if args.verbose:
         print('>>> hyperparameters:')
         print(kernel)
-        print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
+        print('>>> loglike : %.6e' % params[-1])
 
     # predict
     _mean, _ = interpolator.condition(

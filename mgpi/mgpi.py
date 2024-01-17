@@ -699,7 +699,10 @@ a mean function and a covariance matrix
             print('    time : %.6f sec' % (time.time()-t0))
 
         # return
-        return sampler.get_chain(), sampler # return array with shape: (num_samples, num_walkers, num_dim) and the sampler
+        samples = sampler.get_chain() # array with shape: (num_samples, num_walkers, num_dim)
+        logprob = sampler.get_log_prob() # array with shape: (num_samples, num_walkers)
+
+        return samples, logprob, sampler
 
 #------------------------
 
