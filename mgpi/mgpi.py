@@ -321,6 +321,11 @@ about the structure of the covariance matrix or mean function
     def __init__(self, kernel):
         self.kernel = kernel
 
+    def update(self, *args, **kwargs):
+        """a convenience function for updating kernel parameters
+        """
+        return self.kernel.update(*args, **kwargs)
+
     #--------------------
 
     # utilities for representing the mean of the conditioned process efficiently
@@ -600,7 +605,7 @@ a mean function and a covariance matrix
         def logprob(params):
             if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
                 return -np.infty # return a big number so we avoid this region
-            self.kernel.update(*params)
+            self.update(*params)
             logl = self.loglikelihood(source_x, source_f)
             logp = logprior(params)
             if verbose:
@@ -636,7 +641,7 @@ a mean function and a covariance matrix
             print('    time : %.6f sec' % (time.time()-t0))
 
         # update the kernel to match the optimal parameters
-        self.kernel.update(*result.x)
+        self.update(*result.x)
 
         # return
         return self.kernel.params_dict
@@ -926,7 +931,7 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
         def logprob(params):
             if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
                 return -np.infty # return a big number so we avoid this region
-            self.kernel.update(*params)
+            self.update(*params)
             logl = self.loglikelihood(source_x, source_f, neighbors=neighbors)
             logp = logprior(params)
             if verbose:
