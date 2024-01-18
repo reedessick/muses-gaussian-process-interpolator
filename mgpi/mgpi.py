@@ -555,23 +555,23 @@ a mean function and a covariance matrix
 
     #---
 
-    def _construct_target(self, source_x, source_f, logprior=None, verbose=False):
+    def _construct_logprob(self, source_x, source_f, logprior=None, verbose=False):
         """construct a target function suitable for optimize_kernel and sample_kernel
         """
         ## define target function that we will minimize
         if logprior is None: # set prior to be flat
             logprior = lambda x: 0.0
 
-        def target(params):
+        def logprob(params):
             if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
-                return np.infty # return a big number so we avoid this region
+                return -np.infty # return a big number so we avoid this region
             self.kernel.update(**dict(zip(self.kernel._params, params)))
             ans = self.loglikelihood(source_x, source_f) + logprior(params)
             if verbose:
-                print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
-            return -ans
+                print('>>> %s\n  logprob=%.6e' % (self.kernel, ans))
+            return ans
 
-        return target
+        return logprob
 
     #--------------------
 
@@ -583,7 +583,7 @@ a mean function and a covariance matrix
             raise ImportError('could not import scipy.optimize.minimize')
 
         # Minimize the negative loglikelihood (maximize loglikelihood)
-        target = self._construct_target(source_x, source_f, logprior=logprior, verbose=Verbose)
+        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, verbose=Verbose)
 
         ## run the minimizer
         if verbose:
@@ -591,7 +591,7 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         result = _minimize(
-            target,
+            lambda params: -logprob(params), # minimize the negative loglike --> maximize loglike
             self.kernel.params, # needs to be a verctor, not a dictionary
             method=method,
         )
@@ -626,10 +626,10 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        target = self._construct_target(source_x, source_f, logprior=None, verbose=Verbose)
+        logprob = self._construct_logprob(source_x, source_f, logprior=None, verbose=Verbose)
 
         ## instantiate the sampler
-        sampler = _emcee.EnsembleSampler(num_walkers, num_dim, target)
+        sampler = _emcee.EnsembleSampler(num_walkers, num_dim, logprob)
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
@@ -848,33 +848,37 @@ This is based on:
             source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
             neighbors = self._2neighbors(source_x, verbose=debug)  # find neighbors within the training data
 
-        # iterate and compute diagonal elements of covariance matrix
-        n = len(source_x)
-        diag = np.empty(n, dtype=float)
-        mean = np.empty(n, dtype=float)
-
         # FIXME?
         ## can I do the following calculation without the loop in python (which is slow...)?
-        ## or at least parallelize this?
+        ## or at least parallelize this through multiprocessing.pool?
+        ## NOTE, an attempt to vectorize via numpy.vectorize resulted in *longer* runtimes, so maybe this is good enough?
 
-        for ind, (x, f, n) in enumerate(zip(source_x, source_f, neighbors)):
-            x = np.array([x]) # cast the the correct shape
+        ## this construction was found to be consistently (slightly) faster than a for loop
+        ## returns (mean, diag), each of which is a vector with the same length as source_x
+        return np.transpose([self._sample2diag(source_x[[ind]], source_x[neighbors[ind]], source_f[neighbors[ind]]) \
+            for ind in range(len(source_x))])
 
-            if len(n) == 0: # no neighbors -> just the covariance at this point
-                mean[ind] = 0.0 # we assume zero-mean process
-                diag[ind] = self.kernel.cov(x, x)[0]
+    #---
 
-            else: # run the normal GP conditioning but restricted to the neighbor set
-                m, c = Interpolator.condition(self, x, source_x[n], source_f[n], verbose=verbose)
-                mean[ind] = m
-                diag[ind] = c[0,0]
+    def _sample2diag(self, x, ref_x, ref_f, verbose=False):
+        """construct the conditioned distribution for a single sample point
+        this should make parallelization easier in the future
+        """
+        if len(ref_x) == 0: # no neighbors -> just the covariance at this point
+            mean = 0.0 # we assume zero-mean process
+            diag = self.kernel.cov(x, x)[0]
+
+        else: # run the normal GP conditioning but restricted to the neighbor set
+            m, c = Interpolator.condition(self, x, ref_x, ref_f, verbose=verbose)
+            mean = m[0]
+            diag = c[0,0]
 
         # return
         return mean, diag
 
     #--------------------
 
-    def _construct_target(self, source_x, source_f, logprior=None, verbose=False):
+    def _construct_logprob(self, source_x, source_f, logprior=None, verbose=False):
         """construct the target distribution for optimize_kernel and sample_kernel.
 We wrap this in this way so that we can pre-compute the neighbor-sets for source_x
         """
@@ -887,17 +891,17 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
         neighbors = self._2neighbors(source_x, verbose=verbose) # find neighbors within the training data
 
         # declare target function
-        def target(params):
+        def logprob(params):
             if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
-                return np.infty # return a big number so we avoid this region
+                return -np.infty # return a big number so we avoid this region
             self.kernel.update(**dict(zip(self.kernel._params, params)))
             ans = self.loglikelihood(source_x, source_f, neighbors=neighbors) + logprior(params)
             if verbose:
-                print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
-            return -ans
+                print('>>> %s\n  logprob=%.6e' % (self.kernel, ans))
+            return ans
 
         # return
-        return target
+        return logprob
 
     #---
 
@@ -905,7 +909,7 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
         """compute the loglikelihood using the NNGP decomposition of the covariance matrix
         """
         # compute the combination of 1D Gaussians implicit within the NNGP decomposition
-        mean, diag = self._2diag(source_x, source_f, neighbors=None, verbose=verbose)
+        mean, diag = self._2diag(source_x, source_f, neighbors=neighbors, verbose=verbose)
 
         # loglike is the sum of independnet 1D Gaussians
         return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)

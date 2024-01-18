@@ -204,9 +204,9 @@ print("\n>>> maximizing loglikelihood to select hyperparameters")
 def logprior(params):
     bounds = [
         (0.001, 5.0),    # sigma_0 --> SquaredExponentialKernel
-        (0.1, 40.0),   # length0_0 --> SquaredExponentialKernel
-        (0.1, 40.0),   # length1_0 --> SquaredExponentialKernel
-        (0.000, 1.0), # sigma_1 --> WhiteNoiseKernel
+        (1.0, 40.0),   # length0_0 --> SquaredExponentialKernel
+        (1.0, 40.0),   # length1_0 --> SquaredExponentialKernel
+        (0.000, 0.01), # sigma_1 --> WhiteNoiseKernel
     ]
     for p, (m, M) in zip(params, bounds):
         if (p < m) or (M < p):
