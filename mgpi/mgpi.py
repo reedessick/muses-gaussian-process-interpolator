@@ -75,14 +75,29 @@ class Kernel(object):
 
     #---
 
-    def update(self, **params):
+    def update(self, *args, **params):
         """update the internal parameters that describe this kernel
         """
-        for key, val in params.items():
-            try:
-                self.params[self._params.index(key)] = val
-            except ValueError:
-                warnings.warn('Warning! cannot update %s in object type %s' % (key, self.__class__.__name__))
+        num_args = len(args)
+
+        if num_args:
+            if params:
+                raise ValueError('cannot update with both args and params at the same time!')
+
+            elif num_args == len(self._params): # assume we just passed a vector
+                self.params[:] = args
+
+            elif (num_args == 1) and isinstance(args[0], dict): # handle a dictionary
+                self.update(**args[0])
+
+            else:
+                raise ValueError('could not interpret args=%s'%args)
+        else:
+            for key, val in params.items():
+                try:
+                    self.params[self._params.index(key)] = val
+                except ValueError:
+                    warnings.warn('Warning! cannot update %s in object type %s' % (key, self.__class__.__name__))
 
     #---
 
@@ -249,18 +264,38 @@ class CombinedKernel(Kernel):
 
     #---
 
-    def update(self, **params):
+    def update(self, *args, **params):
         """update each kernel in turn
         """
-        # map the parameters into smaller dictionaries for separate kernels
-        ans = defaultdict(dict)
-        for key, val in params.items():
-            name, ind = self._kernel_name(key)
-            ans[ind][name] = val
+        num_args = len(args)
 
-        # now iterate and update each kernel in turn
-        for ind, params in ans.items():
-            self.kernels[ind].update(**params)
+        if num_args:
+            if params:
+                raise ValueError('cannot update with both args and params at the same time!')
+
+            elif num_args == len(self._params): # assume we just passed a vector
+                start = 0
+                for kernel in self.kernels:
+                    stop = start + len(kernel._params)
+                    kernel.update(*args[start:stop])
+                    start = stop
+
+            elif (num_args == 1) and isinstance(args[0], dict): # handle a dictionary
+                self.update(**args[0])
+
+            else:
+                raise ValueError('could not interpret args=%s'%args)
+
+        else:
+            # map the parameters into smaller dictionaries for separate kernels
+            ans = defaultdict(dict)
+            for key, val in params.items():
+                name, ind = self._kernel_name(key)
+                ans[ind][name] = val
+
+            # now iterate and update each kernel in turn
+            for ind, params in ans.items():
+                self.kernels[ind].update(**params)
 
     #---
 
@@ -565,11 +600,12 @@ a mean function and a covariance matrix
         def logprob(params):
             if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
                 return -np.infty # return a big number so we avoid this region
-            self.kernel.update(**dict(zip(self.kernel._params, params)))
-            ans = self.loglikelihood(source_x, source_f) + logprior(params)
+            self.kernel.update(*params)
+            logl = self.loglikelihood(source_x, source_f)
+            logp = logprior(params)
             if verbose:
-                print('>>> %s\n  logprob=%.6e' % (self.kernel, ans))
-            return ans
+                print('>>> %s\n  logl=%.6e\n  logp=%.6e' % (self.kernel, logl, logp))
+            return logl + logp
 
         return logprob
 
@@ -600,7 +636,7 @@ a mean function and a covariance matrix
             print('    time : %.6f sec' % (time.time()-t0))
 
         # update the kernel to match the optimal parameters
-        self.kernel.update(**dict(zip(self.kernel._params, result.x)))
+        self.kernel.update(*result.x)
 
         # return
         return self.kernel.params_dict
@@ -841,25 +877,6 @@ This is based on:
 
     #---
 
-    def _2diag(self, source_x, source_f, neighbors=None, verbose=False, debug=False):
-        """construct the diagonal of the cholesky decomposition and the predicted means
-        """
-        if neighbors is None:
-            source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
-            neighbors = self._2neighbors(source_x, verbose=debug)  # find neighbors within the training data
-
-        # FIXME?
-        ## can I do the following calculation without the loop in python (which is slow...)?
-        ## or at least parallelize this through multiprocessing.pool?
-        ## NOTE, an attempt to vectorize via numpy.vectorize resulted in *longer* runtimes, so maybe this is good enough?
-
-        ## this construction was found to be consistently (slightly) faster than a for loop
-        ## returns (mean, diag), each of which is a vector with the same length as source_x
-        return np.transpose([self._sample2diag(source_x[[ind]], source_x[neighbors[ind]], source_f[neighbors[ind]]) \
-            for ind in range(len(source_x))])
-
-    #---
-
     def _sample2diag(self, x, ref_x, ref_f, verbose=False):
         """construct the conditioned distribution for a single sample point
         this should make parallelization easier in the future
@@ -876,6 +893,21 @@ This is based on:
         # return
         return mean, diag
 
+    #---
+
+    def _2diag(self, source_x, source_f, neighbors, verbose=False):
+        """construct the diagonal of the cholesky decomposition and the predicted means
+        """
+        # FIXME?
+        ## can I do the following calculation without the loop in python (which is slow...)?
+        ## or at least parallelize this through multiprocessing.pool?
+        ## NOTE, an attempt to vectorize via numpy.vectorize resulted in *longer* runtimes, so maybe this is good enough?
+
+        ## this construction was found to be consistently (slightly) faster than a for loop
+        ## returns (mean, diag), each of which is a vector with the same length as source_x
+        return np.transpose([self._sample2diag(source_x[[ind]], source_x[neighbors[ind]], source_f[neighbors[ind]], verbose=verbose) \
+            for ind in range(len(source_x))])
+
     #--------------------
 
     def _construct_logprob(self, source_x, source_f, logprior=None, verbose=False):
@@ -886,19 +918,20 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
         if logprior is None: # set prior to be flat
             logprior = lambda x: 0.0
 
-        # identify neighbor sets
-        source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
+        # identify neighbor sets once (they won't change)
+        source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
         neighbors = self._2neighbors(source_x, verbose=verbose) # find neighbors within the training data
 
         # declare target function
         def logprob(params):
             if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
                 return -np.infty # return a big number so we avoid this region
-            self.kernel.update(**dict(zip(self.kernel._params, params)))
-            ans = self.loglikelihood(source_x, source_f, neighbors=neighbors) + logprior(params)
+            self.kernel.update(*params)
+            logl = self.loglikelihood(source_x, source_f, neighbors=neighbors)
+            logp = logprior(params)
             if verbose:
-                print('>>> %s\n  logprob=%.6e' % (self.kernel, ans))
-            return ans
+                print('>>> %s\n  logl=%.6e\n  logp=%.6e' % (self.kernel, logl, logp))
+            return logl + logp
 
         # return
         return logprob
@@ -908,8 +941,12 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
     def loglikelihood(self, source_x, source_f, neighbors=None, verbose=False):
         """compute the loglikelihood using the NNGP decomposition of the covariance matrix
         """
+        if neighbors is None: # otherwise, we assume everthing has already been sorted and neighbor sets have been identified
+            source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
+            neighbors = self._2neighbors(source_x, verbose=verbose)  # find neighbors within the training data
+
         # compute the combination of 1D Gaussians implicit within the NNGP decomposition
-        mean, diag = self._2diag(source_x, source_f, neighbors=neighbors, verbose=verbose)
+        mean, diag = self._2diag(source_x, source_f, neighbors, verbose=verbose)
 
         # loglike is the sum of independnet 1D Gaussians
         return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)
