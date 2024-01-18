@@ -11,9 +11,18 @@ The interpolator can be tested via
 ```
 
 ```
-./uiuc-test-new
-     ../../etc/uiuc/equation_of_state.csv.gz
-     --downsample 10
+./uiuc-test-new \
+    ../../etc/uiuc/equation_of_state.csv.gz \
+    --downsample 10
+    --num-burnin 500 \
+    --num-samples 10000 \
+    --num-walkers 100 \
     --tag uiuc-equation_of_state \
-     -v
+    -v
+
+./uiuc-test-new-corner \
+    uiuc-test-new-samples_uiuc-equation_of_state.hdf \
+    -v
 ```
+
+
