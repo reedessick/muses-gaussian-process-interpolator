@@ -555,15 +555,9 @@ a mean function and a covariance matrix
 
     #---
 
-    def optimize_kernel(self, source_x, source_f, method=DEFAULT_METHOD, logprior=None, verbose=False, Verbose=False):
+    def _construct_target(self, source_x, source_f, logprior=None):
+        """construct a target function suitable for optimize_kernel and sample_kernel
         """
-        Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
-        """
-        if _minimize is None:
-            raise ImportError('could not import scipy.optimize.minimize')
-
-        # Minimize the negative loglikelihood (maximize loglikelihood)
-
         ## define target function that we will minimize
         if logprior is None: # set prior to be flat
             logprior = lambda x: 0.0
@@ -576,6 +570,20 @@ a mean function and a covariance matrix
             if Verbose:
                 print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
             return -ans
+
+        return target
+
+    #--------------------
+
+    def optimize_kernel(self, source_x, source_f, method=DEFAULT_METHOD, logprior=None, verbose=False, Verbose=False):
+        """
+        Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
+        """
+        if _minimize is None:
+            raise ImportError('could not import scipy.optimize.minimize')
+
+        # Minimize the negative loglikelihood (maximize loglikelihood)
+        target = self._construct_target(source_x, source_f, logprior=logprior)
 
         ## run the minimizer
         if verbose:
@@ -616,16 +624,9 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        if logprior is None:
-            logprior = lambda x: 0.0 # set to be flat
+        target = self._construct_target(source_x, source_f, logprior=None)
 
-        def target(params):
-            self.kernel.update(**dict(zip(self.kernel._params, params)))
-            if np.all(params > 0): # check to make sure parameters are reasonable
-                return self.loglikelihood(source_x, source_f) + logprior(params)
-            else:
-                return -np.infty # avoid these regions of parameter space
-
+        ## instantiate the sampler
         sampler = _emcee.EnsembleSampler(num_walkers, num_dim, target)
 
         if verbose:
