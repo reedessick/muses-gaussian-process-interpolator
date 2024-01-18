@@ -555,7 +555,7 @@ a mean function and a covariance matrix
 
     #---
 
-    def _construct_target(self, source_x, source_f, logprior=None):
+    def _construct_target(self, source_x, source_f, logprior=None, verbose=False):
         """construct a target function suitable for optimize_kernel and sample_kernel
         """
         ## define target function that we will minimize
@@ -567,7 +567,7 @@ a mean function and a covariance matrix
                 return np.infty # return a big number so we avoid this region
             self.kernel.update(**dict(zip(self.kernel._params, params)))
             ans = self.loglikelihood(source_x, source_f) + logprior(params)
-            if Verbose:
+            if verbose:
                 print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
             return -ans
 
@@ -583,7 +583,7 @@ a mean function and a covariance matrix
             raise ImportError('could not import scipy.optimize.minimize')
 
         # Minimize the negative loglikelihood (maximize loglikelihood)
-        target = self._construct_target(source_x, source_f, logprior=logprior)
+        target = self._construct_target(source_x, source_f, logprior=logprior, verbose=Verbose)
 
         ## run the minimizer
         if verbose:
@@ -607,10 +607,12 @@ a mean function and a covariance matrix
 
     #--------------------
 
-    def _instantiate_sampler(self, source_x, source_f, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
+    def _instantiate_sampler(self, source_x, source_f, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False, Verbose=False):
 
         if _emcee is None:
             raise ImportError('could not import emcee')
+
+        verbose |= Verbose
 
         # check dimensionality of the sampling problem
         num_dim = len(self.kernel.params)
@@ -624,7 +626,7 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        target = self._construct_target(source_x, source_f, logprior=None)
+        target = self._construct_target(source_x, source_f, logprior=None, verbose=Verbose)
 
         ## instantiate the sampler
         sampler = _emcee.EnsembleSampler(num_walkers, num_dim, target)
@@ -717,7 +719,10 @@ class NearestNeighborInterpolator(Interpolator):
     """implements a NearestNeighbor Gaussian Process, which induces a sparse covariance matrix and allows for \
 matrix inversion in linear time.
 This is based on:
-    Abhirup Datta, Sudipto Banerjee, Andrew O. Finley & Alan E. Gelfand (2016) Hierarchical Nearest-Neighbor Gaussian Process Models for Large Geostatistical Datasets, Journal of the American Statistical Association, 111:514, 800-812, DOI: 10.1080/01621459.2015.1044091
+    Abhirup Datta, Sudipto Banerjee, Andrew O. Finley & Alan E. Gelfand (2016)
+    Hierarchical Nearest-Neighbor Gaussian Process Models for Large Geostatistical Datasets,
+    Journal of the American Statistical Association, 111:514, 800-812, 
+    DOI: 10.1080/01621459.2015.1044091
     """
 
     def __init__(self, kernel, num_neighbors=DEFAULT_NUM_NEIGHBORS, order_by_index=DEFAULT_ORDER_BY_INDEX):
@@ -734,33 +739,123 @@ This is based on:
         """sort training data to put it in increasing order
         """
         order = np.argsort(source_x[:,self.order_by_index])
-        if source_f is None:
-            return source_x[order]
-        else:
-            return source_x[order], source_f[order]
+        if source_f is not None:
+            source_f = source_f[order]
+        return source_x[order], source_f
 
-    def _2neighbors(self, target_x, source_x):
+    def _2neighbors(self, source_x, target_x=None, verbose=False, Verbose=False):
         """identify which elements in source_x (assumed sorted) are neighbors of target_x
         """
-        source_x = source_x[:,self.order_by_index]
-        inds = np.arange(len(source_x))
+        verbose |= Verbose
 
-        # return a list of the indexes of the neighboring sets for each target
-        # NOTE this may not do what we want if there are ties...
-        return [inds[source_x < x][-self.num_neighbors:] for x in target_x[:,self.order_by_index]]
+        if target_x is None: # find neighbor sets within the reference set
+            if verbose:
+                print('setting target_x = source_x --> finding neighbors within reference set')
+            target_x = source_x
+            discard_index = 0 # index beyond which we discard possible neighbors
+                              # this will discard the current sample, which would also be caught by the exact-match check
+                              # will be updated within loop over target_x
+        else:
+            discard_index = len(source_x) # de facto consider all possible neighbors
 
-    def _2diag(self, source_x, source_f, verbose=False):
+        # grab the value by which we first order the reference set
+        source_order = source_x[:,self.order_by_index]
+        inds = np.arange(len(source_order))
+
+        if verbose:
+            print('%d samples in reference set:' % len(source_x))
+            if Verbose:
+                for X in source_x:
+                    print('    %s' % X)
+
+        # iterate over target_x, identifying neighbors for each point
+        neighbors = []
+        subset = np.empty(len(source_x), dtype=bool)
+
+        if verbose:
+            tnd = 0
+            num_target = len(target_x)
+
+        for x in target_x:
+
+            if verbose:
+                print('processing target %d/%d : %s' % (tnd, num_target, x))
+                tnd += 1 # ok to increment this here; we only use it in this print statement
+
+            subset[:] = False # reset the boolean array
+
+            # first, select based on source_order, only looking up to discard_index
+            subset[:discard_index] = source_order[:discard_index] <= x[self.order_by_index]
+
+            if verbose:
+                print('    found %d possible neighbors' % np.sum(subset))
+                if Verbose:
+                    for X in source_x[subset]:
+                        print('        %s' % X)
+
+            # make sure there are no exact matches for x within subset
+            # find exact matches and exclude them from the subset
+            matches = np.all(source_x[subset] == x, axis=1)
+
+            if verbose:
+                if np.any(matches):
+                    print('    found %d exact matches' % np.sum(matches))
+                    if Verbose:
+                        for X in source_x[subset][matches]:
+                            print('        %s' % X)
+                else:
+                    print('    no exact matches found!')
+
+            subset[inds[subset][matches]] = False
+
+            if verbose:
+                print('    retained %d possible neighbors after excluding exact matches' % np.sum(subset))
+
+            if np.any(subset): # at least one possible sample within the subset
+                # compute euclidean distance for all these points
+                dist = np.sum((source_x[subset] - x)**2, axis=1)
+                order = np.argsort(dist) # order from smallest to largest
+
+                # record the indecies associated with the smallest euclidean distance in the subset
+                # order subset by smallest to largest distance, then truncate
+                neighbors.append( inds[subset][order][:self.num_neighbors] )
+
+                if verbose:
+                    print('    retained %d out of %d with max %d' % \
+                        (len(neighbors[-1]), np.sum(subset), self.num_neighbors))
+                    if Verbose:
+                        for ind, (X, dist) in enumerate(zip(source_x[subset][order], dist[order])):
+                            print('        %.6e <-- %s%s' % \
+                                (dist, X, '\texcluded' if ind >= self.num_neighbors else '\tneighbor %02d'%ind))
+
+            else: # no neighbors (this should be a special case for at most a few samples)
+                if verbose:
+                    print('    no neighbors!')
+                neighbors.append( [] )
+
+            # increment discard index so we now include the next-biggest element in reference set if needed
+            discard_index += 1
+
+        # return
+        return neighbors # indecies of neighbors for each point in target_x
+
+    #---
+
+    def _2diag(self, source_x, source_f, neighbors=None, verbose=False, debug=False):
         """construct the diagonal of the cholesky decomposition and the predicted means
         """
-        source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
-        neighbors = self._2neighbors(source_x, source_x)       # find neighbors within the training data
+        if neighbors is None:
+            source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
+            neighbors = self._2neighbors(source_x, verbose=debug)  # find neighbors within the training data
 
         # iterate and compute diagonal elements of covariance matrix
         n = len(source_x)
         diag = np.empty(n, dtype=float)
         mean = np.empty(n, dtype=float)
 
-        # FIXME? can I do the following calculation without the loop in python (which is slow...)?
+        # FIXME?
+        ## can I do the following calculation without the loop in python (which is slow...)?
+        ## or at least parallelize this?
 
         for ind, (x, f, n) in enumerate(zip(source_x, source_f, neighbors)):
             x = np.array([x]) # cast the the correct shape
@@ -777,10 +872,45 @@ This is based on:
         # return
         return mean, diag
 
-    def _2cholesky(self, source_x, source_f):
-        raise NotImplementedError
+    #--------------------
+
+    def _construct_target(self, source_x, source_f, logprior=None, verbose=False):
+        """construct the target distribution for optimize_kernel and sample_kernel.
+We wrap this in this way so that we can pre-compute the neighbor-sets for source_x
+        """
+        ## define target function that we will minimize
+        if logprior is None: # set prior to be flat
+            logprior = lambda x: 0.0
+
+        # identify neighbor sets
+        source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
+        neighbors = self._2neighbors(source_x, verbose=verbose) # find neighbors within the training data
+
+        # declare target function
+        def target(params):
+            if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
+                return np.infty # return a big number so we avoid this region
+            self.kernel.update(**dict(zip(self.kernel._params, params)))
+            ans = self.loglikelihood(source_x, source_f, neighbors=neighbors) + logprior(params)
+            if verbose:
+                print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
+            return -ans
+
+        # return
+        return target
 
     #---
+
+    def loglikelihood(self, source_x, source_f, neighbors=None, verbose=False):
+        """compute the loglikelihood using the NNGP decomposition of the covariance matrix
+        """
+        # compute the combination of 1D Gaussians implicit within the NNGP decomposition
+        mean, diag = self._2diag(source_x, source_f, neighbors=None, verbose=verbose)
+
+        # loglike is the sum of independnet 1D Gaussians
+        return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)
+
+    #--------------------
 
     def compress(self, source_x, source_f, verbose=False, Verbose=False):
         """compress the training set using the NNGP decomposition of the covariance matrix
@@ -798,13 +928,3 @@ This is based on:
         """compute conditioned distriution using the NNGP decomposition of the covariance matrix
         """
         raise NotImplementedError
-
-    def loglikelihood(self, source_x, source_f, verbose=False):
-        """compute the loglikelihood using the NNGP decomposition of the covariance matrix
-        """
-        # first, compute the diagonal of the cholesky decomposition of the covariance matrix
-        # NOTE! this is all we need to take the determinant of this decomposition
-        mean, diag = self._2diag(source_x, source_f, verbose=verbose)
-
-        # loglike is the sum of independnet 1D Gaussians
-        return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)

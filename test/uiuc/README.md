@@ -25,4 +25,11 @@ The interpolator can be tested via
     -v
 ```
 
-
+```
+./uiuc-test-nngp \
+    ../../etc/uiuc/equation_of_state.csv.gz \
+    --downsample 10 \
+    --num-neighbors 20 \
+    --order-by-index 0 \
+    --time-execution
+```
