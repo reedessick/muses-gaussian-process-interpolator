@@ -45,6 +45,7 @@ DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 
 parser.add_argument('--num-burnin', default=mgpi.DEFAULT_NUM_BURNIN, type=int)
 parser.add_argument('--num-samples', default=mgpi.DEFAULT_NUM_SAMPLES, type=int)
+parser.add_argument('--num-walkers', default=mgpi.DEFAULT_NUM_WALKERS, type=int)
 parser.add_argument('--num-samples-for-average', default=50, type=int,
     help='the number of samples used when computing the average prediction')
 
@@ -305,7 +306,7 @@ samples, logprob, sampler = interpolator.sample_kernel(
     logprior=logprior,
     num_burnin=args.num_burnin,
     num_samples=args.num_samples,
-    num_walkers=None, # choose this automatically
+    num_walkers=args.num_walkers,
     Verbose=args.time_execution,
 )
 
