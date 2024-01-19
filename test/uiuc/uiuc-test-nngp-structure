@@ -202,7 +202,7 @@ if args.time_execution:
 # define a basic prior
 bounds = [
     (0.01, 2.0),  # sigma_0 --> SquaredExponentialKernel
-    (1.0, 100.0),  # length0_0 --> SquaredExponentialKernel
+    (1.0, 200.0),  # length0_0 --> SquaredExponentialKernel
     (1.0, 100.0),  # length1_0 --> SquaredExponentialKernel
     (1e-5, 1e-3), # sigma_1 --> WhiteNoiseKernel
 ]
