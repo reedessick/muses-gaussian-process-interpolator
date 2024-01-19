@@ -740,6 +740,7 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         state = sampler.run_mcmc(state, num_burnin, progress=Verbose)
+        sampler.reset() # remove burn-in samples from internal bookkeeping
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))

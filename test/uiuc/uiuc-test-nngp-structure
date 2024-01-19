@@ -204,7 +204,7 @@ bounds = [
     (0.01, 2.0),  # sigma_0 --> SquaredExponentialKernel
     (1.0, 100.0),  # length0_0 --> SquaredExponentialKernel
     (1.0, 100.0),  # length1_0 --> SquaredExponentialKernel
-    (1e-4, 1e-2), # sigma_1 --> WhiteNoiseKernel
+    (1e-5, 1e-3), # sigma_1 --> WhiteNoiseKernel
 ]
 
 def logprior(params):
