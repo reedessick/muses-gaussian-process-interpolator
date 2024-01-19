@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+
+"""a quick script to make a corner plot
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import os
+
+import h5py
+import numpy as np
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+import corner
+
+from argparse import ArgumentParser
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+
+args = parser.parse_args()
+
+if args.tag:
+    args.tag = "_"+args.tag
+
+#-------------------------------------------------
+
+fig = None
+
+for name in ['Interpolator', 'NearestNeighborInterpolator']:
+
+    path = 'uiuc-test-nngp-structure-corner-%s-samples.hdf' % name
+
+    if args.verbose:
+        print('loading: '+path)
+
+    with h5py.File(path, 'r') as obj:
+        params = obj['params'][:].astype(str)
+        samples = obj['samples'][...]
+
+    num_samples, num_walkers, num_dim = samples.shape
+
+    #------------------------
+
+    raise NotImplementedError
+
+    # format for a corner plot
+    for walker in range(num_walkers):
+        if args.verbose:
+            print('plotting sequence for walker: %d' % walker)
+
+        fig = plt.figure()
+
+        for dim in range(num_dim):
+            ax = plt.subplot(num_dim, 1, 1+dim)
+
+            ax.plot(samples[:,walker,dim])
+
+            plt.setp(ax.get_xticklabels(), visible=False)
+            ax.set_ylabel(params[dim])
+
+        plt.setp(ax.get_xticklabels(), visible=True)
+        ax.set_xlabel('sample')
+
+        plt.subplots_adjust(
+            left=0.15,
+            right=0.95,
+            bottom=0.15,
+            top=0.95,
+            hspace=0.01,
+            wspace=0.01,
+        )
+
+        figname = os.path.basename(__file__)+'-sequence-walker%02d%s.png' % (walker, args.tag)
+        if args.verbose:
+            print('    saving: '+figname)
+        fig.savefig(figname)
+        plt.close(fig)
+
+        #---
+
+        if args.verbose:
+            print('plotting corner for walker: %d' % walker)
+
+        fig = corner.corner(
+            samples[:,walker],
+            labels=params,
+        )
+
+        figname = os.path.basename(__file__)+'-corner-walker%02d%s.png' % (walker, args.tag)
+        if args.verbose:
+            print('    saving: '+figname)
+        fig.savefig(figname)
+        plt.close(fig)

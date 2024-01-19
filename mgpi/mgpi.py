@@ -603,11 +603,20 @@ a mean function and a covariance matrix
             logprior = lambda x: 0.0
 
         def logprob(params):
-            if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
-                return -np.infty # return a big number so we avoid this region
+            # check parameters to make sure they are reasonable
+            if any(params <= 0) or any(params != params):
+                return -np.infty # avoid this region
             self.update(*params)
-            logl = self.loglikelihood(source_x, source_f)
+
+            # evaluate prior to make sure this point is allowed
             logp = logprior(params)
+            if logp == -np.infty:
+                return -np.infty # don't bother evaluating likelihood
+
+            # evaulate likelihood
+            logl = self.loglikelihood(source_x, source_f)
+
+            # report and return
             if verbose:
                 print('>>> %s\n  logl=%.6e\n  logp=%.6e' % (self.kernel, logl, logp))
             return logl + logp
@@ -882,7 +891,7 @@ This is based on:
 
     #---
 
-    def _sample2diag(self, x, ref_x, ref_f, verbose=False):
+    def _sample2diag(self, x, ref_x, ref_f, verbose=False, safe=True):
         """construct the conditioned distribution for a single sample point
         this should make parallelization easier in the future
         """
@@ -894,6 +903,14 @@ This is based on:
             m, c = Interpolator.condition(self, x, ref_x, ref_f, verbose=verbose)
             mean = m[0]
             diag = c[0,0]
+
+        if safe: # sanity checks
+            assert (mean==mean), 'mean is nan\nkernel=%s\nx=%s\nref_x=%s\nref_f=%s' % \
+                (self.kernel, x, ref_x, ref_f)
+            assert (diag==diag), 'diag is nan\nkernel=%s\nx=%s\nref_x=%s\nref_f=%s' % \
+                (self.kernel, x, ref_x, ref_f)
+            assert (diag > 0), 'marginal variance is negative!\ndiag=%s\nkernel=%s\nx=%s\nref_x=%s\nref_f=%s' % \
+                (diag, self.kernel, x, ref_x, ref_f)
 
         # return
         return mean, diag
@@ -929,11 +946,20 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
 
         # declare target function
         def logprob(params):
-            if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
-                return -np.infty # return a big number so we avoid this region
+            # check parameters to make sure they are reasonable
+            if any(params <= 0) or any(params != params): 
+                return -np.infty # avoid this region
             self.update(*params)
-            logl = self.loglikelihood(source_x, source_f, neighbors=neighbors)
+
+            # evaluate prior to make sure this point is allowed
             logp = logprior(params)
+            if logp == -np.infty:
+                return -np.infty # don't bother evaluating likelihood
+
+            # evaulate likelihood
+            logl = self.loglikelihood(source_x, source_f, neighbors=neighbors)
+
+            # report and return
             if verbose:
                 print('>>> %s\n  logl=%.6e\n  logp=%.6e' % (self.kernel, logl, logp))
             return logl + logp

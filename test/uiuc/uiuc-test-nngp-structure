@@ -218,7 +218,7 @@ def logprior(params):
 print("\n>>> sampling hyperparameters from distribution defined by loglikelihood")
 
 for interp, name in [
-        (basic, 'Interpolator'),
+#        (basic, 'Interpolator'),
         (nngp, 'NearestNeighborInterpolator'),
     ]:
 
