@@ -47,9 +47,11 @@ The interpolator can be tested via
 ```
 
 ```
+# downsample heavily to make runtime tractable
+
 ./uiuc-test-nngp-structure \
     ../../etc/uiuc/equation_of_state.csv.gz \
-    --downsample 7 \
+    --downsample 20 \
     --num-burnin 100 \
     --num-samples 1000 \
     --num-walkers 20 \
