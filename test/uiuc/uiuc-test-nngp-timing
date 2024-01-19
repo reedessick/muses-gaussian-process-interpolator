@@ -47,6 +47,7 @@ parser.add_argument('--num-neighbors', default=10, type=int)
 parser.add_argument('--order-by-index', default=0, type=int)
 
 parser.add_argument('--num-trials', default=100, type=int)
+parser.add_argument('--skip-basic', default=False, action='store_true')
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('--time-execution', default=False, action='store_true')
@@ -219,9 +220,10 @@ for trial in range(args.num_trials):
         sys.stdout.flush()
 
     # compute for basic interpolator
-    t0 = time.time()
-    basic.loglikelihood(source_x, source_f)
-    basic_times.append(time.time()-t0)
+    if not args.skip_basic:
+        t0 = time.time()
+        basic.loglikelihood(source_x, source_f)
+        basic_times.append(time.time()-t0)
 
     # compute for nngp interpolator
     t0 = time.time()
@@ -237,9 +239,12 @@ if args.verbose:
     sys.stdout.write('\n')
     sys.stdout.flush()
 
-print('Interpolator.loglikelihood\n    mean : %.3e sec\n    stdv : %.3e sec' % \
-    (np.mean(basic_times), np.std(basic_times)))
+if not args.skip_basic:
+    print('Interpolator.loglikelihood\n    mean : %.3e sec\n    stdv : %.3e sec' % \
+        (np.mean(basic_times), np.std(basic_times)))
+
 print('NearestNeighborInterpolator.loglikelihood\n    mean : %.3e sec\n    stdv : %.3e sec' % \
     (np.mean(nngp_times), np.std(nngp_times)))
+
 print('NearestNeighborInterpolator.loglikelihood with pre-sorting\n    mean : %.3e sec\n    stdv : %.3e sec' % \
     (np.mean(psnn_times), np.std(psnn_times)))
