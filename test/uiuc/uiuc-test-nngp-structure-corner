@@ -27,16 +27,16 @@ parser.add_argument('-v', '--verbose', default=False, action='store_true')
 
 args = parser.parse_args()
 
-if args.tag:
-    args.tag = "_"+args.tag
-
 #-------------------------------------------------
 
-fig = None
+FIG = None
 
-for name in ['Interpolator', 'NearestNeighborInterpolator']:
+for ind, (name, color) in enumerate([
+        ('Interpolator', 'b'),
+        ('NearestNeighborInterpolator', 'k'),
+    ]):
 
-    path = 'uiuc-test-nngp-structure-corner-%s-samples.hdf' % name
+    path = 'uiuc-test-nngp-structure-%s-samples.hdf' % name
 
     if args.verbose:
         print('loading: '+path)
@@ -47,9 +47,9 @@ for name in ['Interpolator', 'NearestNeighborInterpolator']:
 
     num_samples, num_walkers, num_dim = samples.shape
 
-    #------------------------
+    #--------------------
 
-    raise NotImplementedError
+    ### plot the behavior of individual walkers
 
     # format for a corner plot
     for walker in range(num_walkers):
@@ -78,7 +78,7 @@ for name in ['Interpolator', 'NearestNeighborInterpolator']:
             wspace=0.01,
         )
 
-        figname = os.path.basename(__file__)+'-sequence-walker%02d%s.png' % (walker, args.tag)
+        figname = os.path.basename(__file__)+'-%s-sequence-walker%02d.png' % (name, walker)
         if args.verbose:
             print('    saving: '+figname)
         fig.savefig(figname)
@@ -94,8 +94,28 @@ for name in ['Interpolator', 'NearestNeighborInterpolator']:
             labels=params,
         )
 
-        figname = os.path.basename(__file__)+'-corner-walker%02d%s.png' % (walker, args.tag)
+        figname = os.path.basename(__file__)+'-%s-corner-walker%02d.png' % (name, walker)
         if args.verbose:
             print('    saving: '+figname)
         fig.savefig(figname)
         plt.close(fig)
+
+    #--------------------
+
+    # add results to a cumulative plot
+
+    FIG = corner.corner(
+        np.transpose([samples[:,:,dim].flatten() for dim in range(num_dim)]),
+        labels=params,
+        color=color,
+        fig=FIG,
+    )
+
+    FIG.text(0.95, 0.95-0.05*ind, name, color=color, ha='right', va='top')
+
+# save cumulative plot
+figname = os.path.basename(__file__)+'.png'
+if args.verbose:
+    print('    saving: '+figname)
+FIG.savefig(figname)
+plt.close(FIG)

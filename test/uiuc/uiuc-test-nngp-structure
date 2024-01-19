@@ -200,13 +200,14 @@ if args.time_execution:
 #-------------------------------------------------
 
 # define a basic prior
+bounds = [
+    (0.01, 2.0),  # sigma_0 --> SquaredExponentialKernel
+    (1.0, 100.0),  # length0_0 --> SquaredExponentialKernel
+    (1.0, 100.0),  # length1_0 --> SquaredExponentialKernel
+    (1e-4, 1e-2), # sigma_1 --> WhiteNoiseKernel
+]
+
 def logprior(params):
-    bounds = [
-        (0.01, 2.0),    # sigma_0 --> SquaredExponentialKernel
-        (1.0, 40.0),   # length0_0 --> SquaredExponentialKernel
-        (1.0, 40.0),   # length1_0 --> SquaredExponentialKernel
-        (0.000, 0.001), # sigma_1 --> WhiteNoiseKernel
-    ]
     for p, (m, M) in zip(params, bounds):
         if (p < m) or (M < p):
             return -np.infty
@@ -218,7 +219,7 @@ def logprior(params):
 print("\n>>> sampling hyperparameters from distribution defined by loglikelihood")
 
 for interp, name in [
-#        (basic, 'Interpolator'),
+        (basic, 'Interpolator'),
         (nngp, 'NearestNeighborInterpolator'),
     ]:
 

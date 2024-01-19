@@ -676,7 +676,7 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        logprob = self._construct_logprob(source_x, source_f, logprior=None, verbose=Verbose)
+        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, verbose=Verbose)
 
         ## instantiate the sampler
         sampler = _emcee.EnsembleSampler(num_walkers, num_dim, logprob)
@@ -711,7 +711,7 @@ a mean function and a covariance matrix
         sampler, (num_dim, num_walkers) = self._instantiate_sampler(
             source_x,
             source_f,
-            logprior,
+            logprior=logprior,
             num_walkers=num_walkers,
             verbose=verbose,
         )
