@@ -672,7 +672,7 @@ a mean function and a covariance matrix
 
         # instantiate sampler
         if verbose:
-            print('initializing sampler')
+            print('initializing sampler (%d walkers, %d dimensions)' % (num_walkers, num_dim))
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
@@ -724,13 +724,31 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         # scatter parameters in a unit ball around the initial guess
-        state = self.kernel.params * (1 + np.random.normal(size=(num_walkers, num_dim))/3)
-
-        # make sure all parameters are initially positive
-        state = np.abs(state)
+        state = np.empty((num_walkers, num_dim), dtype=float)
+        n = 0 # the number of accepted points
 
         if verbose:
-            print('    time : %.6f sec' % (time.time()-t0))
+            trials = 0 # the number of tries
+
+        while n < num_walkers:
+            if verbose:
+                trials += 1
+
+            # draw parameters
+            params = self.kernel.params * (1 + np.random.normal(size=num_dim))
+
+            # sanity check them
+            if np.any(params <= 0): # do not allow negative params
+                continue
+            if (logprior is not None) and (logprior(params) == -np.infty): # don't keep this sample; the prior disallows it
+                continue
+
+            # record this sample as it passes all sanity checks
+            state[n] = params
+            n += 1
+
+        if verbose:
+            print('    time : %.6f sec (%d/%d trials accepted)' % (time.time()-t0, n, trials))
 
         #---
 
