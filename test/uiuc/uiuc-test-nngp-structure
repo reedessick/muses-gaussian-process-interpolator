@@ -41,7 +41,7 @@ parser.add_argument('--num-samples', default=mgpi.DEFAULT_NUM_SAMPLES, type=int)
 parser.add_argument('--num-walkers', default=mgpi.DEFAULT_NUM_WALKERS, type=int)
 
 parser.add_argument('--num-neighbors', default=10, type=int)
-parser.add_argument('--order-by-index', default=0, type=int)
+parser.add_argument('--order-by-index', default=None, type=int)
 
 parser.add_argument('--num-trials', default=100, type=int)
 

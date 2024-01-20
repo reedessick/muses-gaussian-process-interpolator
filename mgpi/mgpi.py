@@ -46,7 +46,7 @@ DEFAULT_NUM_WALKERS = None # will set num_walkers based on the dimensionality of
 # default parameters for nearest-neighbor interpolator logic
 
 DEFAULT_NUM_NEIGHBORS = 10
-DEFAULT_ORDER_BY_INDEX = 0
+DEFAULT_ORDER_BY_INDEX = None
 
 #-------------------------------------------------
 
@@ -804,10 +804,21 @@ This is based on:
     # methods pecular to the NNGP algorithm
     # effectively, building a specific decomposition of the covariance matrix
 
+    def _2rank(self, x):
+        """compute the measure by which we order samples
+        """
+        if self.order_by_index is None:
+            return np.sum(x) # this is arbitrary, but hopefully it helps to break ties from regular grid spacing
+        else:
+            return x[self.order_by_index]
+
+    def _2ranks(self, x):
+        return np.array([self._2rank(_) for _ in x])
+
     def _2sorted(self, source_x, source_f=None):
         """sort training data to put it in increasing order
         """
-        order = np.argsort(source_x[:,self.order_by_index])
+        order = np.argsort(self._2ranks(source_x))
         if source_f is not None:
             source_f = source_f[order]
         return source_x[order], source_f
@@ -828,7 +839,7 @@ This is based on:
             discard_index = len(source_x) # de facto consider all possible neighbors
 
         # grab the value by which we first order the reference set
-        source_order = source_x[:,self.order_by_index]
+        source_order = self._2ranks(source_x)
         inds = np.arange(len(source_order))
 
         if verbose:
@@ -854,7 +865,7 @@ This is based on:
             subset[:] = False # reset the boolean array
 
             # first, select based on source_order, only looking up to discard_index
-            subset[:discard_index] = source_order[:discard_index] <= x[self.order_by_index]
+            subset[:discard_index] = source_order[:discard_index] <= self._2rank(x)
 
             if verbose:
                 print('    found %d possible neighbors' % np.sum(subset))
