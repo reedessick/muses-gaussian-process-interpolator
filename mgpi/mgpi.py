@@ -37,6 +37,7 @@ DEFAULT_METHOD = 'TNC' # used within scipy.optimize.minimize
 
 # default parameters for MCMC sampling
 
+DEFAULT_TEMPERATURE = 1.0 # used to temper the likelihood within logprob
 DEFAULT_NUM_BURNIN = 100
 DEFAULT_NUM_SAMPLES = 1000
 DEFAULT_NUM_WALKERS = None # will set num_walkers based on the dimensionality of the sampling problem
@@ -595,7 +596,7 @@ a mean function and a covariance matrix
 
     #---
 
-    def _construct_logprob(self, source_x, source_f, logprior=None, verbose=False):
+    def _construct_logprob(self, source_x, source_f, logprior=None, temperature=DEFAULT_TEMPERATURE, verbose=False):
         """construct a target function suitable for optimize_kernel and sample_kernel
         """
         ## define target function that we will minimize
@@ -614,7 +615,7 @@ a mean function and a covariance matrix
                 return -np.infty # don't bother evaluating likelihood
 
             # evaulate likelihood
-            logl = self.loglikelihood(source_x, source_f)
+            logl = self.loglikelihood(source_x, source_f) / temperature # temper the likelihood
 
             # report and return
             if verbose:
@@ -625,7 +626,16 @@ a mean function and a covariance matrix
 
     #--------------------
 
-    def optimize_kernel(self, source_x, source_f, method=DEFAULT_METHOD, logprior=None, verbose=False, Verbose=False):
+    def optimize_kernel(
+            self,
+            source_x,
+            source_f,
+            method=DEFAULT_METHOD,
+            logprior=None,
+            temperature=DEFAULT_TEMPERATURE,
+            verbose=False,
+            Verbose=False,
+        ):
         """
         Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
         """
@@ -633,7 +643,7 @@ a mean function and a covariance matrix
             raise ImportError('could not import scipy.optimize.minimize')
 
         # Minimize the negative loglikelihood (maximize loglikelihood)
-        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, verbose=Verbose)
+        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, temperature=temperature, verbose=Verbose)
 
         ## run the minimizer
         if verbose:
@@ -657,7 +667,16 @@ a mean function and a covariance matrix
 
     #--------------------
 
-    def _instantiate_sampler(self, source_x, source_f, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False, Verbose=False):
+    def _instantiate_sampler(
+            self,
+            source_x,
+            source_f,
+            logprior=None,
+            temperature=DEFAULT_TEMPERATURE,
+            num_walkers=DEFAULT_NUM_WALKERS,
+            verbose=False,
+            Verbose=False,
+        ):
 
         if _emcee is None:
             raise ImportError('could not import emcee')
@@ -672,11 +691,12 @@ a mean function and a covariance matrix
 
         # instantiate sampler
         if verbose:
-            print('initializing sampler (%d walkers, %d dimensions)' % (num_walkers, num_dim))
+            print('initializing sampler\n    %d walkers\n    %d dimensions\n    temperature=%.3e)' % \
+                (num_walkers, num_dim, temperature))
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, verbose=Verbose)
+        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, temperature=temperature, verbose=Verbose)
 
         ## instantiate the sampler
         sampler = _emcee.EnsembleSampler(num_walkers, num_dim, logprob)
@@ -694,6 +714,7 @@ a mean function and a covariance matrix
             source_x,
             source_f,
             logprior=None,
+            temperature=DEFAULT_TEMPERATURE,
             num_burnin=DEFAULT_NUM_BURNIN,
             num_samples=DEFAULT_NUM_SAMPLES,
             num_walkers=DEFAULT_NUM_WALKERS,
@@ -712,6 +733,7 @@ a mean function and a covariance matrix
             source_x,
             source_f,
             logprior=logprior,
+            temperature=temperature,
             num_walkers=num_walkers,
             verbose=verbose,
         )
@@ -962,7 +984,7 @@ This is based on:
 
     #--------------------
 
-    def _construct_logprob(self, source_x, source_f, logprior=None, verbose=False):
+    def _construct_logprob(self, source_x, source_f, logprior=None, temperature=DEFAULT_TEMPERATURE, verbose=False):
         """construct the target distribution for optimize_kernel and sample_kernel.
 We wrap this in this way so that we can pre-compute the neighbor-sets for source_x
         """
@@ -987,7 +1009,7 @@ We wrap this in this way so that we can pre-compute the neighbor-sets for source
                 return -np.infty # don't bother evaluating likelihood
 
             # evaulate likelihood
-            logl = self.loglikelihood(source_x, source_f, neighbors=neighbors)
+            logl = self.loglikelihood(source_x, source_f, neighbors=neighbors) / temperature # temper the likelihood
 
             # report and return
             if verbose:

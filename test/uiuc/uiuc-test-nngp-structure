@@ -36,6 +36,7 @@ parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
     help='downsample the input data to keep only 1 sample out of this many. \
 DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 
+parser.add_argument('--temperature', default=mgpi.DEFAULT_TEMPERATURE, type=int)
 parser.add_argument('--num-burnin', default=mgpi.DEFAULT_NUM_BURNIN, type=int)
 parser.add_argument('--num-samples', default=mgpi.DEFAULT_NUM_SAMPLES, type=int)
 parser.add_argument('--num-walkers', default=mgpi.DEFAULT_NUM_WALKERS, type=int)
@@ -230,6 +231,7 @@ for interp, name in [
         source_x,
         source_f,
         logprior=logprior,
+        temperature=args.temperature,
         num_burnin=args.num_burnin,
         num_samples=args.num_samples,
         num_walkers=args.num_walkers,

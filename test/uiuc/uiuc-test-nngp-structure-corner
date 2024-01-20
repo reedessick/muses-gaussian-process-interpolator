@@ -109,6 +109,7 @@ for ind, (name, color) in enumerate([
             fig = corner.corner(
                 samples[:,walker],
                 labels=params,
+                hist_kwargs=dict(density=True),
             )
 
             for ax in fig.axes:
@@ -135,6 +136,7 @@ for ind, (name, color) in enumerate([
         np.transpose([samples[:,:,dim].flatten() for dim in range(num_dim)]),
         labels=params,
         color=color,
+        hist_kwargs=dict(density=True),
         fig=FIG,
     )
 
