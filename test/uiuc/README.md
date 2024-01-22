@@ -51,11 +51,15 @@ The interpolator can be tested via
 
 ./uiuc-test-nngp-structure \
     ../../etc/uiuc/equation_of_state.csv.gz \
-    --downsample 20 \
+    --downsample 10 \
     --num-burnin 100 \
     --num-samples 1000 \
     --num-walkers 20 \
     --num-neighbors 20 \
-    --order-by-index 0 \
+    --temperature 1 \
+    --fix sigma_1 1e-4 \
     --time-execution
+
+./uiuc-test-nngp-structure-corner \
+    --verbose
 ```
