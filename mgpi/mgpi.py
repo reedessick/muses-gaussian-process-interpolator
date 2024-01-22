@@ -596,18 +596,33 @@ a mean function and a covariance matrix
 
     #---
 
-    def _construct_logprob(self, source_x, source_f, logprior=None, temperature=DEFAULT_TEMPERATURE, verbose=False):
+    def _construct_logprob(
+            self,
+            source_x,
+            source_f,
+            logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
+            verbose=False,
+            **kwargs # extra kwargs handed to self.loglikelihood within logprob
+        ):
         """construct a target function suitable for optimize_kernel and sample_kernel
         """
         ## define target function that we will minimize
         if logprior is None: # set prior to be flat
             logprior = lambda x: 0.0
 
+        _params = self.kernel._params
+        if fixed is not None:
+            self.update(**fixed) # set the parameters to their fixed values
+            _params = [name for name in _params if name not in fixed] # only update the un-fixed params within logprob
+        
         def logprob(params):
             # check parameters to make sure they are reasonable
             if any(params <= 0) or any(params != params):
                 return -np.infty # avoid this region
-            self.update(*params)
+
+            self.update(dict(zip(_params, params)))
 
             # evaluate prior to make sure this point is allowed
             logp = logprior(params)
@@ -615,7 +630,7 @@ a mean function and a covariance matrix
                 return -np.infty # don't bother evaluating likelihood
 
             # evaulate likelihood
-            logl = self.loglikelihood(source_x, source_f) / temperature # temper the likelihood
+            logl = self.loglikelihood(source_x, source_f, **kwargs) / temperature # temper the likelihood
 
             # report and return
             if verbose:
@@ -623,6 +638,52 @@ a mean function and a covariance matrix
             return logl + logp
 
         return logprob
+
+    def _construct_initial_params(self, logprior=None, fixed=None, size=1, verbose=False):
+        """generate initial locations for optimization and/or sampling algorithms
+        """
+        num_params = len(self.kernel.params)
+        num_fixed = len(fixed) if fixed is not None else 0
+        num_dim = num_params - num_fixed
+
+        if verbose:
+            print('initializing %d samples with num_dim = %d (%d params - %d fixed)' % \
+                (size, num_dim, num_params, num_fixed))
+            t0 = time.time()
+
+        # scatter parameters in a unit ball around the initial guess
+        state = np.empty((size, num_dim), dtype=float)
+        n = 0 # the number of accepted points
+
+        if verbose:
+            trials = 0 # the number of tries
+
+        _params = self.kernel.params
+        if fixed is not None: # only generate samples for the params that are not fixed
+            _params = [val for key, val in zip(self.kernel._params, self.kernel.params) if (key not in fixed)] 
+
+        while n < size:
+            if verbose:
+                trials += 1
+
+            # draw parameters
+            params = _params * (1 + np.random.normal(size=num_dim))
+
+            # sanity check them
+            if np.any(params <= 0): # do not allow negative params
+                continue
+            if (logprior is not None) and (logprior(params) == -np.infty): # don't keep this sample; the prior disallows it
+                continue
+
+            # record this sample as it passes all sanity checks
+            state[n] = params
+            n += 1
+
+        if verbose:
+            print('    time : %.6f sec (%d/%d trials accepted)' % (time.time()-t0, n, trials))
+
+        # return
+        return state
 
     #--------------------
 
@@ -632,6 +693,7 @@ a mean function and a covariance matrix
             source_f,
             method=DEFAULT_METHOD,
             logprior=None,
+            fixed=None,
             temperature=DEFAULT_TEMPERATURE,
             verbose=False,
             Verbose=False,
@@ -643,7 +705,17 @@ a mean function and a covariance matrix
             raise ImportError('could not import scipy.optimize.minimize')
 
         # Minimize the negative loglikelihood (maximize loglikelihood)
-        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, temperature=temperature, verbose=Verbose)
+        logprob = self._construct_logprob(
+            source_x,
+            source_f,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
+            verbose=Verbose,
+        )
+
+        # construct initial parameters
+        intial_params = self._construct_initial_params(logprior=logprior, fixed=fixed, size=1, verbose=Verbose)[0]
 
         ## run the minimizer
         if verbose:
@@ -652,7 +724,7 @@ a mean function and a covariance matrix
 
         result = _minimize(
             lambda params: -logprob(params), # minimize the negative loglike --> maximize loglike
-            self.kernel.params, # needs to be a verctor, not a dictionary
+            initial_params,
             method=method,
         )
 
@@ -672,6 +744,7 @@ a mean function and a covariance matrix
             source_x,
             source_f,
             logprior=None,
+            fixed=None,
             temperature=DEFAULT_TEMPERATURE,
             num_walkers=DEFAULT_NUM_WALKERS,
             verbose=False,
@@ -684,19 +757,29 @@ a mean function and a covariance matrix
         verbose |= Verbose
 
         # check dimensionality of the sampling problem
-        num_dim = len(self.kernel.params)
+        num_params = len(self.kernel.params)
+        num_fixed = len(fixed) if fixed is not None else 0
+
+        num_dim = num_params - num_fixed
 
         if num_walkers is None:
             num_walkers = 2*num_dim
 
         # instantiate sampler
         if verbose:
-            print('initializing sampler\n    %d walkers\n    %d dimensions\n    temperature=%.3e)' % \
-                (num_walkers, num_dim, temperature))
+            print('initializing sampler\n    %d walkers\n    %d dimensions (%d params - %d fixed)\n    temperature=%.3e)' % \
+                (num_walkers, num_dim, num_params, num_fixed, temperature))
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        logprob = self._construct_logprob(source_x, source_f, logprior=logprior, temperature=temperature, verbose=Verbose)
+        logprob = self._construct_logprob(
+            source_x,
+            source_f,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
+            verbose=Verbose,
+        )
 
         ## instantiate the sampler
         sampler = _emcee.EnsembleSampler(num_walkers, num_dim, logprob)
@@ -714,6 +797,7 @@ a mean function and a covariance matrix
             source_x,
             source_f,
             logprior=None,
+            fixed=None,
             temperature=DEFAULT_TEMPERATURE,
             num_burnin=DEFAULT_NUM_BURNIN,
             num_samples=DEFAULT_NUM_SAMPLES,
@@ -733,6 +817,7 @@ a mean function and a covariance matrix
             source_x,
             source_f,
             logprior=logprior,
+            fixed=fixed,
             temperature=temperature,
             num_walkers=num_walkers,
             verbose=verbose,
@@ -741,36 +826,7 @@ a mean function and a covariance matrix
         #---
 
         # picking initial positions for walkers
-        if verbose:
-            print('initializing %d walkers (num_dim = %d)' % (num_walkers, num_dim))
-            t0 = time.time()
-
-        # scatter parameters in a unit ball around the initial guess
-        state = np.empty((num_walkers, num_dim), dtype=float)
-        n = 0 # the number of accepted points
-
-        if verbose:
-            trials = 0 # the number of tries
-
-        while n < num_walkers:
-            if verbose:
-                trials += 1
-
-            # draw parameters
-            params = self.kernel.params * (1 + np.random.normal(size=num_dim))
-
-            # sanity check them
-            if np.any(params <= 0): # do not allow negative params
-                continue
-            if (logprior is not None) and (logprior(params) == -np.infty): # don't keep this sample; the prior disallows it
-                continue
-
-            # record this sample as it passes all sanity checks
-            state[n] = params
-            n += 1
-
-        if verbose:
-            print('    time : %.6f sec (%d/%d trials accepted)' % (time.time()-t0, n, trials))
+        state = self._construct_initial_params(logprior=logprior, fixed=fixed, size=num_walkers, verbose=verbose)
 
         #---
 
@@ -984,40 +1040,33 @@ This is based on:
 
     #--------------------
 
-    def _construct_logprob(self, source_x, source_f, logprior=None, temperature=DEFAULT_TEMPERATURE, verbose=False):
-        """construct the target distribution for optimize_kernel and sample_kernel.
-We wrap this in this way so that we can pre-compute the neighbor-sets for source_x
+    def _construct_logprob(
+            self,
+            source_x,
+            source_f,
+            logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
+            verbose=False,
+            **kwargs # extra kwargs handed to self.loglikelihood within logprob
+        ):
+        """construct a target function suitable for optimize_kernel and sample_kernel
         """
-        ## define target function that we will minimize
-        if logprior is None: # set prior to be flat
-            logprior = lambda x: 0.0
-
         # identify neighbor sets once (they won't change)
         source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
-        neighbors = self._2neighbors(source_x, verbose=verbose) # find neighbors within the training data
-
-        # declare target function
-        def logprob(params):
-            # check parameters to make sure they are reasonable
-            if any(params <= 0) or any(params != params): 
-                return -np.infty # avoid this region
-            self.update(*params)
-
-            # evaluate prior to make sure this point is allowed
-            logp = logprior(params)
-            if logp == -np.infty:
-                return -np.infty # don't bother evaluating likelihood
-
-            # evaulate likelihood
-            logl = self.loglikelihood(source_x, source_f, neighbors=neighbors) / temperature # temper the likelihood
-
-            # report and return
-            if verbose:
-                print('>>> %s\n  logl=%.6e\n  logp=%.6e' % (self.kernel, logl, logp))
-            return logl + logp
-
-        # return
-        return logprob
+        kwargs['neighbors'] = self._2neighbors(source_x, verbose=verbose) # find neighbors within the training data
+                                                                          # and pass these to likelihood
+        # delegate
+        return Interpolator._construct_logprob(
+            self,
+            source_x,
+            source_f,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
+            verbose=verbose,
+            **kwargs # extra kwargs handed to self.loglikelihood within logprob, which now contains "neighbors"
+        )
 
     #---
 
