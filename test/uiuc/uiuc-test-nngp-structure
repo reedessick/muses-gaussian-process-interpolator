@@ -206,7 +206,7 @@ if args.time_execution:
 #-------------------------------------------------
 
 if fixed:
-    print('fixed:')
+    print('\n>>> fixed:')
     for key, val in fixed.items():
         print('    %s = %.3e' % (key, val))
 
@@ -219,7 +219,7 @@ bounds = [
 ]
 bounds = [(key, val) for key, val in zip(kernel._params, bounds) if (key not in fixed)]
 
-print('logprior:')
+print('>>> logprior:')
 for key, (m, M) in bounds:
     print('    %.3e <= %s <= %.3e' % (m, key, M))
 
