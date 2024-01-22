@@ -767,7 +767,7 @@ a mean function and a covariance matrix
 
         # instantiate sampler
         if verbose:
-            print('initializing sampler\n    %d walkers\n    %d dimensions (%d params - %d fixed)\n    temperature=%.3e)' % \
+            print('initializing sampler\n    %d walkers\n    %d dimensions (%d params - %d fixed)\n    temperature=%.3e' % \
                 (num_walkers, num_dim, num_params, num_fixed, temperature))
             t0 = time.time()
 
