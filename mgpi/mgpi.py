@@ -336,7 +336,7 @@ about the structure of the covariance matrix or mean function
     return inv(Cov(source_x, source_x)) @ source_f
         """
 
-        # construct covariane matrix
+        # construct covariance matrix
         if verbose:
             print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
             t0 = time.time()
@@ -1025,7 +1025,7 @@ This is based on:
 
     #---
 
-    def _2diag(self, source_x, source_f, neighbors, verbose=False):
+    def _2diag(self, target_x, source_x, source_f, neighbors, verbose=False):
         """construct the diagonal of the cholesky decomposition and the predicted means
         """
         # FIXME?
@@ -1035,8 +1035,8 @@ This is based on:
 
         ## this construction was found to be consistently (slightly) faster than a for loop
         ## returns (mean, diag), each of which is a vector with the same length as source_x
-        return np.transpose([self._sample2diag(source_x[[ind]], source_x[neighbors[ind]], source_f[neighbors[ind]], verbose=verbose) \
-            for ind in range(len(source_x))])
+        return np.transpose([self._sample2diag(target_x[[ind]], source_x[neighbors[ind]], source_f[neighbors[ind]], verbose=verbose) \
+            for ind in range(len(target_x))])
 
     #--------------------
 
@@ -1078,26 +1078,106 @@ This is based on:
             neighbors = self._2neighbors(source_x, verbose=verbose)  # find neighbors within the training data
 
         # compute the combination of 1D Gaussians implicit within the NNGP decomposition
-        mean, diag = self._2diag(source_x, source_f, neighbors, verbose=verbose)
+        mean, diag = self._2diag(source_x, source_x, source_f, neighbors, verbose=verbose)
 
         # loglike is the sum of independnet 1D Gaussians
         return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)
 
     #--------------------
 
+    def condition(self, target_x, source_x, source_f, verbose=False, Verbose=False):
+        """compute conditioned distriution using the NNGP decomposition of the covariance matrix
+        """
+        verbose |= Verbose
+
+        # first, find neighbors of target_x within source_x
+        if verbose:
+            print('finding neighbors for %d target_x within %d source_x samples' % (len(target_x), len(source_x)))
+            t0 = time.time()
+
+        source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
+        neighbors = self._2neighbors(source_x, target_x=target_x, verbose=Verbose)  # find neighbors
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # now, assuming that source_x are the reference set, target_x are all (conditionally) independent
+        # so we can iterate and evaluate predictions for each target_x separately
+        if verbose:
+            print('computing predicted means, variances independently')
+            t0 = time.time()
+
+        # FIXME!
+        ### I may be able to do this more efficiently if I batch jobs based on groups with the same neighbor set
+        ### --> avoid repeated inversions of the same source matrix
+
+        mean, diag = self._2diag(target_x, source_x, source_f, neighbors, verbose=Verbose)
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # format and return
+        return mean, np.diag(diag) # cast this to a matrix
+
+    #--------------------
+
     def compress(self, source_x, source_f, verbose=False, Verbose=False):
         """compress the training set using the NNGP decomposition of the covariance matrix
         """
-        raise NotImplementedError
+        # construct covariance matrix
+        if verbose:
+            print('constructing %d x %d source-source NearestNeighbor covariance matrix with %d neighbors' % \
+                (len(source_x), len(source_x), self.num_neighbors))
+            t0 = time.time()
+
+        raise NotImplementedError('''
+        We need to replace this with the NNGP covariance matrix. We should also be able to speed up the inversion dramatically (i.e., do not use np.linalg.inv but do the inversion by hand)
+
+        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        inv_cov_src_src = np.linalg.inv(cov_src_src)
+''')
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # compute the contraction that can be used to compute the mean
+        if verbose:
+            print('compressing observations')
+            t0 = time.time()
+        compressed = inv_cov_src_src @ source_f
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # return
+        return compressed
+
+    #---
 
     def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
         """used the compressed representation of the training set to predict the mean at arbitrary points
         """
-        raise NotImplementedError
+        # construct covariane matrix
+        if verbose:
+            print('constructing %d x %d target-source NNGP covariance matrix with %d neighbors' % \
+                (len(target_x), len(source_x), self.num_neighbors))
+            t0 = time.time()
 
-    #---
+        raise NotImplementedError('''
+        we need to construct the off-diagonal part of the NNGP covariance matrix. The rest of this should follow as-is
 
-    def condition(self, target_x, source_x, source_f, verbose=False, Verbose=False):
-        """compute conditioned distriution using the NNGP decomposition of the covariance matrix
-        """
-        raise NotImplementedError
+        cov_tar_src = self._x2cov(target_x, source_x, self.kernel, verbose=Verbose)
+''')
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # compute the mean
+        if verbose:
+            print('computing conditioned mean')
+            t0 = time.time()
+        mean = cov_tar_src @ compressed
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # return
+        return mean
