@@ -622,7 +622,7 @@ a mean function and a covariance matrix
             if any(params <= 0) or any(params != params):
                 return -np.infty # avoid this region
 
-            self.update(dict(zip(_params, params)))
+            self.update(**dict(zip(_params, params)))
 
             # evaluate prior to make sure this point is allowed
             logp = logprior(params)

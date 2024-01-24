@@ -263,12 +263,21 @@ for interp, name in [
     if args.verbose:
         print('saving samples to: '+outpath)
     with h5py.File(outpath, 'w') as obj:
+
+        # store command-line options
         grp = obj.create_group('command-line-options')
-        grp.create_dataset(name='temperature', data=temperature)
+
+        grp.create_dataset(name='num_neighbors', data=args.num_neighbors)
+        if args.order_by_index is not None:
+            grp.create_dataset(name='order_by_index', data=args.order_by_index)
+        grp.create_dataset(name='max_temperature', data=args.max_temperature)
+        grp.create_dataset(name='downsample', data=args.downsample)
+        grp.create_dataset(name='temperature', data=args.temperature)
         for key, (m, M) in bounds:
             grp.create_dataset(name=key, data=(m, M))
         for key, val in fixed.items():
             grp.create_dataset(name=key, data=val)
 
+        # store samples
         obj.create_dataset(name='params', data=kernel._params)
         obj.create_dataset(name='samples', data=samples)
