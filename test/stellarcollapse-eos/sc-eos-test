@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+
+"""a simple test of the interpolator
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import os
+
+import time
+
+import numpy as np
+import h5py
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+from argparse import ArgumentParser
+
+### non-standard libraries
+import mgpi
+
+#-------------------------------------------------
+
+DEFAULT_DOWNSAMPLE = 10
+
+DEFAULT_NUM_POINTS = 1000
+
+DEFAULT_YE_RANGE = (0.0, 0.25)
+DEFAULT_R_RANGE = (10**5.1, 10**15.4)
+DEFAULT_E_RANGE = (10**5.1, 10**15.4)
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+parser.add_argument('eos_path', type=str)
+
+parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
+    help='downsample the input data to keep only 1 sample out of this many. \
+DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
+
+#---
+
+parser.add_argument('--ye-range', nargs=2, type=float, default=DEFAULT_YE_RANGE)
+parser.add_argument('--ye-num-points', type=int, default=DEFAULT_NUM_POINTS)
+
+parser.add_argument('--baryon-density-range', nargs=2, type=float, default=DEFAULT_R_RANGE)
+parser.add_argument('--baryon-density-num-points', type=int, default=DEFAULT_NUM_POINTS)
+
+parser.add_argument('--energy-density-range', nargs=2, type=float, default=DEFAULT_E_RANGE)
+parser.add_argument('--energy-density-num-points', type=int, default=DEFAULT_NUM_POINTS)
+
+#---
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+parser.add_argument('--time-execution', default=False, action='store_true')
+
+parser.add_argument('--outpath', default=None, type=str,
+    help='write the resulting table into this path')
+
+args = parser.parse_args()
+
+args.verbose |= args.time_execution
+
+if args.outpath is None:
+    args.outpath = os.path.basename(__file__) + '.hdf'
+
+#-------------------------------------------------
+
+# build an interpolator over finite-temperature EoS tables
+# these tables are regularly spaced in
+#   rho [g/cm^3]
+#   temp [MeV]
+#   ye
+# and contain values for various thermodynamic quantities at each grid point
+#   logenergy [erg/g]
+#   logpress [dynes/cm^2]
+
+if args.verbose:
+    print('loading data from : '+args.eos_path)
+    if args.time_execution:
+        t0 = time.time()
+
+with h5py.File(args.eos_path, 'r') as obj:
+
+    # read in the values that define the table
+    ye = obj['ye'][:]          # electron fraction
+    logr = obj['logrho'][:]    # log of baryon density
+    logt = obj['logtemp'][:]   # log of the temperature
+
+    # read in the variable(s) evaluated at each point in the table
+    loge = obj['logenergy'][:] # log of the energy density
+
+if args.verbose:
+    print('    found data with shape')
+    print('        ye : %d' % len(ye))
+    print('        logr : %d' % len(logr))
+    print('        logt : %d' % len(logt))
+    print('        loge : %s' % (np.shape(loge),))
+
+# downsample the data so that the covariance matrix we build fits in memory
+ye = ye[::args.downsample]
+logr = logr[::args.downsample]
+logt = logt[::args.downsample]
+
+loge = loge[::args.downsample, ::args.downsample, ::args.downsample]
+
+if args.verbose:
+    print('    downselected data to shape')
+    print('        loge : %s' % (np.shape(loge),))
+
+# now cast the grid into the appropriate shape
+ye, logr, logt = np.meshgrid(ye, logr, logt, indexing='ij')
+
+old_x = np.transpose([ye.flatten(), logr.flatten(), loge.flatten()]) # format the data for interpolator
+
+if args.verbose:
+    if args.time_execution:
+        print('    time : %.6f sec' % (time.time()-t0))
+
+#-------------------------------------------------
+
+if args.verbose:
+    print('estimating appropriate hyperparameters and constructing kernel')
+    if args.time_execution:
+        t0 = time.time()
+    
+# now, let's guess at appropriate hyperparameters
+ave = np.mean(logt)       ### mean of the process
+
+sigma = np.std(logt) * 2  ### variance based on spread of the function
+    
+lengths = [                   ### based on the average grid spacing
+    2 * np.mean(np.diff(ye[:,0,0])),
+    2 * np.mean(np.diff(logr[0,:,0])),
+    2 * np.mean(np.diff(loge[0,0,:])),
+]
+
+#------------------------
+
+# construct a kernel
+kernel = mgpi.CombinedKernel(
+    mgpi.SquaredExponentialKernel(sigma, *lengths),
+    mgpi.WhiteNoiseKernel(sigma/100), # a small white noise component for numerical stability
+)
+    
+# construct a general interpolator
+interpolator = mgpi.Interpolator(kernel)
+
+if args.time_execution:
+    print('    time : %.6f sec' % (time.time()-t0))
+
+#-------------------------------------------------
+
+### set up the grid onto which we will interpolate data
+
+if args.verbose:
+    print('generating regular grid onto which we will interpolate the data')
+    print('    ye : %.3f -> %.3f linearly spaced with %d points' % \
+        (args.ye_range[0], args.ye_range[1], args.ye_num_points))
+    print('    r : %.3f -> %.3f logarithmically spaced with %d points' % \
+        (args.baryon_density_range[0], args.baryon_density_range[1], args.baryon_density_num_points))
+    print('    e : %.3f -> %.3f logarithmically spaced with %d points' % \
+        (args.energy_density_range[0], args.energy_density_range[1], args.energy_density_num_points))
+
+    if args.time_execution:
+        t0 = time.time()
+
+new_ye = np.linspace(*args.ye_range, args.ye_num_points)
+new_logr = np.linspace(*np.log(args.baryon_density_range), args.baryon_density_num_points)
+new_loge = np.linspace(*np.log(args.energy_density_range), args.energy_density_num_points)
+
+new_x = np.transpose([_.flatten() for _ in np.meshgrid(new_ye, new_logr, new_loge, indexing='ij')])
+
+if args.time_execution:
+    print('    time : %.6f sec' % (time.time()-t0))
+
+#------------------------
+
+if args.verbose:
+    print('computing interpolation estimate')
+    if args.time_execution:
+        t0 = time.time()
+
+# now let's compute estimates of the speed of sound at the test points
+mean, cov = interpolator.condition(
+    new_x,
+    old_x,
+    logt.flatten() - ave,
+    verbose=args.verbose,
+    Verbose=args.time_execution,
+)
+mean += ave ### add back in the mean that I substracted
+
+if args.time_execution:
+    print('    time : %.6f sec' % (time.time()-t0))
+
+#------------------------
+
+if args.verbose:
+    print('computing the key vector needed for future predictions')
+
+compressed = interpolator.compress(old_x, logt.flatten()-ave, verbose=args.time_execution)
+
+#-------------------------------------------------
+
+# write the interpolated data to disk
+
+if args.verbose:
+    print('writing interpolated table to: '+args.outpath)
+
+with h5py.File(args.outpath, 'w') as obj:
+
+    ### store the data used to construct the grid
+    grp = obj.create_group('input_data')
+
+    # store training data
+    grp.create_dataset('ye', data=ye)
+    grp.create_dataset('logrho', data=logr)
+    grp.create_dataset('logenergy', data=loge)
+    grp.create_dataset('logtemp', data=logt)
+
+    # store the compressed representation of this data
+    grp.create_dataset('compressed_x', data=old_x)
+    grp.create_dataset('compressed', data=compressed)
+    grp.create_dataset('ave', data=ave)
+
+    # store the kernel properties
+    grp.attrs.create('sigma', interpolator.kernel.kernels[0].sigma)
+    grp.attrs.create('lengths', interpolator.kernel.kernels[0].lengths)
+
+    grp.attrs.create('sigma_wn', interpolator.kernel.kernels[1].sigma)
+
+    #---
+
+    ### store the output data (under root)
+
+    ### store reference arrays for the new grid
+    obj.create_dataset('ye', data=new_ye)
+    obj.create_dataset('logrho', data=new_logr)
+    obj.create_dataset('logenergy', data=new_loge)
+
+    ### store the interpolated value everywhere on the table
+    obj.create_dataset(
+        'logtemp',
+        data=mean.reshape(args.ye_num_points, args.baryon_density_num_points, args.energy_density_num_points),
+    )

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Construct an interpolation grid via Gaussian process regression based on input data and a list of hyperparameters
+"""construct an interpolation grid via Gaussian process regression based on input data and a list of hyperparameters
 """
 __author__ = "Reed Essick (reed.essick@gmail.com)"
 

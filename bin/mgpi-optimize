@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+
+"""optimize hyperparameter sets from the marginal likelihood given observed data
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+#-------------------------------------------------
+
+import os
+import time
+
+import numpy as np
+
+from argparse import ArgumentParser
+
+### non-standard libraries
+import mgpi
+
+#-------------------------------------------------
+
+DEFAULT_DOWNSAMPLE = 1 # de facto, no downselection by default
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+#---
+
+igroup = parser.add_argument_group('input data')
+
+igroup.add_argument('eos_path', type=str,
+    help='please provide a CSV with tabulated EoS data')
+igroup.add_argument('hyperparameter_path', type=str,
+    help='please pass the path to a CSV containing sets of hyperparameters (one set per row)')
+
+igroup.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
+    help='downsample the input data to keep only 1 sample out of this many. \
+DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
+
+igroup.add_argument('-d', '--dependent-column', type=str, required=True,
+    help='the dependent column predicted by the Gaussian process (ie, "f" in f(x, y, z)). \
+We only support scalar output from the Gaussian process.')
+igroup.add_argument('-i', '--independent-column', default=[], type=str, action='append', required=True,
+    help='one of the independent columns used within the Gaussian process (ie, "x", "y", or "z" in f(x, y, z)). \
+We can support multi-variate input to the Gaussian process. As such, this option can be repeated.')
+
+#---
+
+ogroup = parser.add_argument_group('output-arguments')
+
+ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
+ogroup.add_argument('--time-execution', default=False, action='store_true')
+
+ogroup.add_argument('-o', '--output-dir', default='.', type=str)
+ogroup.add_argument('-t', '--tag', default='', type=str)
+
+#---
+
+args = parser.parse_args()
+
+args.verbose |= args.time_execution
+
+os.makedirs(args.output_dir, exist_ok=True)
+
+if args.tag:
+    args.tag = "_"+args.tag
+
+#-------------------------------------------------
+
+raise NotImplementedError

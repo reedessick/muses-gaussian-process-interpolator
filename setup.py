@@ -21,5 +21,5 @@ setup(
     license = 'MIT',
     scripts = glob.glob('bin/*'),
     packages = find_packages(),
-    requires = ['numpy', 'scipy'],
+    requires = ['numpy'],
 )

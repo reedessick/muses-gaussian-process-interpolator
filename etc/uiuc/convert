@@ -1,0 +1,16 @@
+#!/bin/bash
+
+### a simple command line to convert the dat files to csv
+### Reed Essick (reed.essick@gmail.com)
+
+#-------------------------------------------------
+
+./dat2csv \
+    --source baryon_density BarDens_Final_PAR_143_350_3_93_143_286_3D.dat \
+    --source energy_density EnerDens_Final_PAR_143_350_3_93_143_286_3D.dat \
+    --source entropy Entr_Final_PAR_143_350_3_93_143_286_3D.dat \
+    --source pressure Press_Final_PAR_143_350_3_93_143_286_3D.dat \
+    --source speed_of_sound SpSound_Final_PAR_143_350_3_93_143_286_3D.dat \
+    --target equation_of_state.csv.gz \
+    --plot \
+    --verbose

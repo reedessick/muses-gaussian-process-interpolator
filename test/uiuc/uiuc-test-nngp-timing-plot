@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+
+"""a simple plotting script to summarize timing data
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import numpy as np
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+#-------------------------------------------------
+
+# load data
+
+path = 'uiuc-test-nngp-timing.txt'
+
+with open(path, 'r') as obj:
+    headers = obj.readline().split()
+    lines = [[_.strip() for _ in line.strip().split('\t') if _] for line in obj.readlines()]
+
+# iterate and plot
+
+num_index = headers.index('num_training_points')
+num = [int(line[num_index]) for line in lines]
+
+ngrid = np.logspace(np.log10(num[0]), np.log10(num[-1]), 101) # for reference scalings
+
+fig = plt.figure()
+ax = fig.gca()
+
+ymin = +np.infty
+
+for label, color, marker, scale in [
+        ('GP', 'b', 'o', 3),
+        ('NNGP', 'r', 's', 2),
+        ('(presorted)NNGP', 'k', '*', 1),
+    ]:
+
+    index = headers.index(label)
+    add_label = True
+
+    for ind, line in enumerate(lines):
+        if line[index] == '-':
+            break
+
+        n = num[ind] # do this so that I can trust that (n, t) are correctly paired after the loop
+
+        kwargs = dict(marker=marker, markeredgecolor=color, markerfacecolor='none', color=color)
+        if add_label:
+            kwargs['label'] = label
+            add_label = False
+
+        try:
+            t = float(line[index])
+            ax.plot(n, t, **kwargs)
+        except:
+            t, dt = [float(_) for _ in line[index].split(' +/- ')]
+            ax.plot(n, t, **kwargs)
+            ax.plot([n,n], [t-dt, t+dt], color=color)
+
+        ymin = min(ymin, t)
+
+    # now add approximate scalings
+    ax.plot(ngrid, t * (ngrid/n)**scale, color=color, linestyle='dashed', alpha=0.25)
+
+ax.set_xscale('log')
+ax.set_yscale('log')
+
+ax.set_ylim(ymin=ymin/2)
+
+ax.tick_params(
+    top=True,
+    bottom=True,
+    left=True,
+    right=True,
+    which='both',
+    direction='in',
+)
+
+ax.grid(True, which='both')
+
+ax.legend(loc='upper left')
+
+ax.set_xlabel('number of training points')
+ax.set_ylabel('average runtime')
+
+figname = 'uiuc-test-nngp-timing-plot.png'
+fig.savefig(figname)
+plt.close(fig)
