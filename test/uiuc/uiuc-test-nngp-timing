@@ -46,6 +46,9 @@ DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 parser.add_argument('--num-neighbors', default=10, type=int)
 parser.add_argument('--order-by-index', default=0, type=int)
 
+parser.add_argument('--num-trials', default=100, type=int)
+parser.add_argument('--skip-basic', default=False, action='store_true')
+
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('--time-execution', default=False, action='store_true')
 
@@ -183,7 +186,9 @@ if args.verbose:
     print(kernel)
 
 # construct a general interpolator
-interpolator = mgpi.NearestNeighborInterpolator(
+basic = mgpi.Interpolator(kernel)
+
+nngp = mgpi.NearestNeighborInterpolator(
     kernel,
     num_neighbors=args.num_neighbors,
     order_by_index=args.order_by_index,
@@ -192,51 +197,54 @@ interpolator = mgpi.NearestNeighborInterpolator(
 if args.time_execution:
     print('    time : %.6f sec' % (time.time()-t0))
 
+# pre-sort the data
+sorted_x, sorted_f = nngp._2sorted(source_x, source_f=source_f)
+neighbors = nngp._2neighbors(sorted_x)
+
 #-------------------------------------------------
 #
-# max likelihood scipy.minimize()
+# time likelihood evaluations
 #
 #-------------------------------------------------
-
-print("\n>>> maximizing loglikelihood to select hyperparameters")
-
-# define a basic prior
-def logprior(params):
-    bounds = [
-        (0.001, 5.0),    # sigma_0 --> SquaredExponentialKernel
-        (1.0, 40.0),   # length0_0 --> SquaredExponentialKernel
-        (1.0, 40.0),   # length1_0 --> SquaredExponentialKernel
-        (0.000, 0.01), # sigma_1 --> WhiteNoiseKernel
-    ]
-    for p, (m, M) in zip(params, bounds):
-        if (p < m) or (M < p):
-            return -np.infty
-    else:
-        return 0.0
-
-# optimize subject to this prior
-optimal_params = interpolator.optimize_kernel(
-    source_x,
-    source_f,
-    logprior=logprior,
-    Verbose=args.time_execution,
-)
 
 if args.verbose:
-    print('>>> optimized hyperparameters:')
-    print(kernel)
-    print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
+    print('performing %d trials to estimate runtime of loglikelihood calls' % args.num_trials)
 
-# now let's compute estimates of the speed of sound at the test points
-# optimized_para = mgpi.SampleKernel(kernel_optimized, source_x, source_f)
+basic_times = []
+nngp_times = []
+psnn_times = []
 
-mean_optimized, cov_optimized = interpolator.condition(
-    target_x,
-    source_x,
-    source_f - ave,
-    Verbose=args.time_execution
-)
-mean_optimized += ave ### add back in the mean that I substracted
+for trial in range(args.num_trials):
+    if args.verbose:
+        sys.stdout.write('\r    trial %d / %d' % (trial, args.num_trials))
+        sys.stdout.flush()
 
-print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)))
-print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)/target_f))
+    # compute for basic interpolator
+    if not args.skip_basic:
+        t0 = time.time()
+        basic.loglikelihood(source_x, source_f)
+        basic_times.append(time.time()-t0)
+
+    # compute for nngp interpolator
+    t0 = time.time()
+    nngp.loglikelihood(source_x, source_f)
+    nngp_times.append(time.time()-t0)
+
+    # compute for nngp interpolator with pre-sorted data
+    t0 = time.time()
+    nngp.loglikelihood(sorted_x, sorted_f, neighbors=neighbors)
+    psnn_times.append(time.time()-t0)
+
+if args.verbose:
+    sys.stdout.write('\n')
+    sys.stdout.flush()
+
+if not args.skip_basic:
+    print('Interpolator.loglikelihood\n    mean : %.3e sec\n    stdv : %.3e sec' % \
+        (np.mean(basic_times), np.std(basic_times)))
+
+print('NearestNeighborInterpolator.loglikelihood\n    mean : %.3e sec\n    stdv : %.3e sec' % \
+    (np.mean(nngp_times), np.std(nngp_times)))
+
+print('NearestNeighborInterpolator.loglikelihood with pre-sorting\n    mean : %.3e sec\n    stdv : %.3e sec' % \
+    (np.mean(psnn_times), np.std(psnn_times)))

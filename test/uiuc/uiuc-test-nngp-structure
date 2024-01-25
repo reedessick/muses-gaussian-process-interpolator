@@ -7,17 +7,10 @@ __author__ = "Reed Essick (reed.essick@gmail.com), Ziyuan Zhang (ziyuan.z@wustl.
 #-------------------------------------------------
 
 import time
-import sys
 import os
 
 import numpy as np
 import h5py
-
-from scipy import interpolate # used for benchmark linear interpolator
-
-import matplotlib
-matplotlib.use("Agg")
-from matplotlib import pyplot as plt
 
 from argparse import ArgumentParser
 
@@ -43,8 +36,18 @@ parser.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
     help='downsample the input data to keep only 1 sample out of this many. \
 DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
 
-parser.add_argument('--num-neighbors', default=10, type=int)
-parser.add_argument('--order-by-index', default=0, type=int)
+parser.add_argument('--fix', default=[], type=str, nargs=2, action='append')
+
+parser.add_argument('--temperature', default=mgpi.DEFAULT_TEMPERATURE, type=int)
+parser.add_argument('--num-burnin', default=mgpi.DEFAULT_NUM_BURNIN, type=int)
+parser.add_argument('--num-samples', default=mgpi.DEFAULT_NUM_SAMPLES, type=int)
+parser.add_argument('--num-walkers', default=mgpi.DEFAULT_NUM_WALKERS, type=int)
+
+parser.add_argument('--num-neighbors', default=mgpi.DEFAULT_NUM_NEIGHBORS, type=int)
+parser.add_argument('--order-by-index', default=mgpi.DEFAULT_ORDER_BY_INDEX, type=int)
+
+parser.add_argument('--skip', default=[], type=str, action='append',
+    help='skip this sampler. Can be repeated')
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('--time-execution', default=False, action='store_true')
@@ -52,6 +55,8 @@ parser.add_argument('--time-execution', default=False, action='store_true')
 args = parser.parse_args()
 
 args.verbose |= args.time_execution
+
+fixed = dict([(key, float(val)) for key, val in args.fix])
 
 #-------------------------------------------------
 
@@ -183,7 +188,9 @@ if args.verbose:
     print(kernel)
 
 # construct a general interpolator
-interpolator = mgpi.NearestNeighborInterpolator(
+basic = mgpi.Interpolator(kernel)
+
+nngp = mgpi.NearestNeighborInterpolator(
     kernel,
     num_neighbors=args.num_neighbors,
     order_by_index=args.order_by_index,
@@ -194,49 +201,83 @@ if args.time_execution:
 
 #-------------------------------------------------
 #
-# max likelihood scipy.minimize()
+# draw hyperparameter samples
 #
 #-------------------------------------------------
 
-print("\n>>> maximizing loglikelihood to select hyperparameters")
+if fixed:
+    print('\n>>> fixed:')
+    for key, val in fixed.items():
+        print('    %s = %.3e' % (key, val))
 
 # define a basic prior
+bounds = [
+    (0.01, 2.0),  # sigma_0 --> SquaredExponentialKernel
+    (1.0, 200.0),  # length0_0 --> SquaredExponentialKernel (baryon_chemical_potential)
+    (1.0, 15.0),  # length1_0 --> SquaredExponentialKernel  (temperature)
+    (1e-4, 1e-3), # sigma_1 --> WhiteNoiseKernel
+]
+bounds = [(key, val) for key, val in zip(kernel._params, bounds) if (key not in fixed)]
+
+print('>>> logprior:')
+for key, (m, M) in bounds:
+    print('    %.3e <= %s <= %.3e' % (m, key, M))
+
 def logprior(params):
-    bounds = [
-        (0.001, 5.0),    # sigma_0 --> SquaredExponentialKernel
-        (1.0, 40.0),   # length0_0 --> SquaredExponentialKernel
-        (1.0, 40.0),   # length1_0 --> SquaredExponentialKernel
-        (0.000, 0.01), # sigma_1 --> WhiteNoiseKernel
-    ]
-    for p, (m, M) in zip(params, bounds):
+    for p, (_, (m, M)) in zip(params, bounds):
         if (p < m) or (M < p):
             return -np.infty
     else:
         return 0.0
 
-# optimize subject to this prior
-optimal_params = interpolator.optimize_kernel(
-    source_x,
-    source_f,
-    logprior=logprior,
-    Verbose=args.time_execution,
-)
+#------------------------
 
-if args.verbose:
-    print('>>> optimized hyperparameters:')
-    print(kernel)
-    print('>>> loglike : %.6e' % interpolator.loglikelihood(source_x, source_f))
+print("\n>>> sampling hyperparameters from distribution defined by loglikelihood")
 
-# now let's compute estimates of the speed of sound at the test points
-# optimized_para = mgpi.SampleKernel(kernel_optimized, source_x, source_f)
+for interp, name in [
+        (basic, 'Interpolator'),
+        (nngp, 'NearestNeighborInterpolator'),
+    ]:
 
-mean_optimized, cov_optimized = interpolator.condition(
-    target_x,
-    source_x,
-    source_f - ave,
-    Verbose=args.time_execution
-)
-mean_optimized += ave ### add back in the mean that I substracted
+    if name in args.skip:
+        print('>>> skipping '+name)
+        continue
 
-print('>>> Mean Absolute Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)))
-print('>>> Mean Absolute Relative Error : %.6e' % np.mean(np.abs(mean_optimized-target_f)/target_f))
+    print('>>> '+name)
+
+    # obtain samples
+    samples, logprob, sampler = interp.sample_kernel(
+        source_x,
+        source_f,
+        logprior=logprior,
+        fixed=fixed,
+        temperature=args.temperature,
+        num_burnin=args.num_burnin,
+        num_samples=args.num_samples,
+        num_walkers=args.num_walkers,
+        Verbose=args.time_execution,
+    )
+
+    # save samples to disk
+    outpath = os.path.basename(__file__) + '-%s-samples.hdf' % name
+    if args.verbose:
+        print('saving samples to: '+outpath)
+    with h5py.File(outpath, 'w') as obj:
+
+        # store command-line options
+        grp = obj.create_group('command-line-options')
+
+        grp.create_dataset(name='num_neighbors', data=args.num_neighbors)
+        if args.order_by_index is not None:
+            grp.create_dataset(name='order_by_index', data=args.order_by_index)
+        grp.create_dataset(name='max_temperature', data=args.max_temperature)
+        grp.create_dataset(name='downsample', data=args.downsample)
+        grp.create_dataset(name='temperature', data=args.temperature)
+        for key, (m, M) in bounds:
+            grp.create_dataset(name=key, data=(m, M))
+        for key, val in fixed.items():
+            grp.create_dataset(name=key, data=val)
+
+        # store samples
+        obj.create_dataset(name='params', data=kernel._params)
+        obj.create_dataset(name='samples', data=samples)

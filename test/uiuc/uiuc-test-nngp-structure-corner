@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+
+"""a quick script to make a corner plot
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import os
+
+import h5py
+import numpy as np
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+import corner
+
+from argparse import ArgumentParser
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+
+args = parser.parse_args()
+
+#-------------------------------------------------
+
+FIG = None
+
+for ind, (name, color) in enumerate([
+        ('Interpolator', 'b'),
+        ('NearestNeighborInterpolator', 'k'),
+    ]):
+
+    path = 'uiuc-test-nngp-structure-%s-samples.hdf' % name
+
+    if args.verbose:
+        print('loading: '+path)
+
+    with h5py.File(path, 'r') as obj:
+        params = obj['params'][:].astype(str)
+        samples = obj['samples'][...]
+
+    num_samples, num_walkers, num_dim = samples.shape
+
+    #--------------------
+
+    ### plot the behavior of individual walkers
+
+    # format for a corner plot
+    for walker in range(num_walkers):
+        if args.verbose:
+            print('plotting sequence for walker: %d' % walker)
+
+        fig = plt.figure()
+
+        for dim in range(num_dim):
+            ax = plt.subplot(num_dim, 1, 1+dim)
+
+            ax.plot(samples[:,walker,dim])
+
+            ax.set_ylabel(params[dim])
+            if dim != num_dim-1:
+                plt.setp(ax.get_xticklabels(), visible=False)
+            ax.set_xlim(xmin=0, xmax=num_samples-1)
+
+            ax.tick_params(
+                left=True,
+                right=True,
+                top=True,
+                bottom=True,
+                direction='in',
+                which='both',
+            )
+
+            ax.grid(True, which='both')
+
+        ax.set_xlabel('sample')
+
+        plt.subplots_adjust(
+            left=0.15,
+            right=0.95,
+            bottom=0.15,
+            top=0.95,
+            hspace=0.01,
+            wspace=0.01,
+        )
+
+        figname = os.path.basename(__file__)+'-%s-sequence-walker%02d.png' % (name, walker)
+        if args.verbose:
+            print('    saving: '+figname)
+        fig.savefig(figname)
+        plt.close(fig)
+
+        #---
+
+        if np.any([np.all(samples[:,walker,dim] == samples[0,walker,dim]) for dim in range(num_dim)]): # no dynamic range!
+            if args.verbose:
+                print('no dynamic range for walker=%d' % walker)
+
+        else:
+            if args.verbose:
+                print('plotting corner for walker: %d' % walker)
+
+            fig = corner.corner(
+                samples[:,walker],
+                labels=params,
+                hist_kwargs=dict(density=True),
+            )
+
+            for ax in fig.axes:
+                ax.tick_params(
+                    left=True,
+                    right=True,
+                    top=True,
+                    bottom=True,
+                    direction='in',
+                    which='both',
+                )
+
+            figname = os.path.basename(__file__)+'-%s-corner-walker%02d.png' % (name, walker)
+            if args.verbose:
+                print('    saving: '+figname)
+            fig.savefig(figname)
+            plt.close(fig)
+
+    #--------------------
+
+    # add results to a cumulative plot
+
+    FIG = corner.corner(
+        np.transpose([samples[:,:,dim].flatten() for dim in range(num_dim)]),
+        labels=params,
+        color=color,
+        hist_kwargs=dict(density=True),
+        fig=FIG,
+    )
+
+    FIG.text(0.95, 0.95-0.05*ind, name, color=color, ha='right', va='top')
+
+# save cumulative plot
+
+for ax in FIG.axes:
+    ax.tick_params(
+        left=True,
+        right=True,
+        top=True,
+        bottom=True,
+        direction='in',
+        which='both',
+    )
+
+
+figname = os.path.basename(__file__)+'.png'
+if args.verbose:
+    print('    saving: '+figname)
+FIG.savefig(figname)
+plt.close(FIG)

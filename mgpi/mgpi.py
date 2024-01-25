@@ -37,6 +37,7 @@ DEFAULT_METHOD = 'TNC' # used within scipy.optimize.minimize
 
 # default parameters for MCMC sampling
 
+DEFAULT_TEMPERATURE = 1.0 # used to temper the likelihood within logprob
 DEFAULT_NUM_BURNIN = 100
 DEFAULT_NUM_SAMPLES = 1000
 DEFAULT_NUM_WALKERS = None # will set num_walkers based on the dimensionality of the sampling problem
@@ -46,7 +47,7 @@ DEFAULT_NUM_WALKERS = None # will set num_walkers based on the dimensionality of
 # default parameters for nearest-neighbor interpolator logic
 
 DEFAULT_NUM_NEIGHBORS = 10
-DEFAULT_ORDER_BY_INDEX = 0
+DEFAULT_ORDER_BY_INDEX = None
 
 #-------------------------------------------------
 
@@ -75,14 +76,29 @@ class Kernel(object):
 
     #---
 
-    def update(self, **params):
+    def update(self, *args, **params):
         """update the internal parameters that describe this kernel
         """
-        for key, val in params.items():
-            try:
-                self.params[self._params.index(key)] = val
-            except ValueError:
-                warnings.warn('Warning! cannot update %s in object type %s' % (key, self.__class__.__name__))
+        num_args = len(args)
+
+        if num_args:
+            if params:
+                raise ValueError('cannot update with both args and params at the same time!')
+
+            elif num_args == len(self._params): # assume we just passed a vector
+                self.params[:] = args
+
+            elif (num_args == 1) and isinstance(args[0], dict): # handle a dictionary
+                self.update(**args[0])
+
+            else:
+                raise ValueError('could not interpret args=%s'%args)
+        else:
+            for key, val in params.items():
+                try:
+                    self.params[self._params.index(key)] = val
+                except ValueError:
+                    warnings.warn('Warning! cannot update %s in object type %s' % (key, self.__class__.__name__))
 
     #---
 
@@ -249,18 +265,38 @@ class CombinedKernel(Kernel):
 
     #---
 
-    def update(self, **params):
+    def update(self, *args, **params):
         """update each kernel in turn
         """
-        # map the parameters into smaller dictionaries for separate kernels
-        ans = defaultdict(dict)
-        for key, val in params.items():
-            name, ind = self._kernel_name(key)
-            ans[ind][name] = val
+        num_args = len(args)
 
-        # now iterate and update each kernel in turn
-        for ind, params in ans.items():
-            self.kernels[ind].update(**params)
+        if num_args:
+            if params:
+                raise ValueError('cannot update with both args and params at the same time!')
+
+            elif num_args == len(self._params): # assume we just passed a vector
+                start = 0
+                for kernel in self.kernels:
+                    stop = start + len(kernel._params)
+                    kernel.update(*args[start:stop])
+                    start = stop
+
+            elif (num_args == 1) and isinstance(args[0], dict): # handle a dictionary
+                self.update(**args[0])
+
+            else:
+                raise ValueError('could not interpret args=%s'%args)
+
+        else:
+            # map the parameters into smaller dictionaries for separate kernels
+            ans = defaultdict(dict)
+            for key, val in params.items():
+                name, ind = self._kernel_name(key)
+                ans[ind][name] = val
+
+            # now iterate and update each kernel in turn
+            for ind, params in ans.items():
+                self.kernels[ind].update(**params)
 
     #---
 
@@ -286,6 +322,11 @@ about the structure of the covariance matrix or mean function
     def __init__(self, kernel):
         self.kernel = kernel
 
+    def update(self, *args, **kwargs):
+        """a convenience function for updating kernel parameters
+        """
+        return self.kernel.update(*args, **kwargs)
+
     #--------------------
 
     # utilities for representing the mean of the conditioned process efficiently
@@ -295,7 +336,7 @@ about the structure of the covariance matrix or mean function
     return inv(Cov(source_x, source_x)) @ source_f
         """
 
-        # construct covariane matrix
+        # construct covariance matrix
         if verbose:
             print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
             t0 = time.time()
@@ -555,7 +596,108 @@ a mean function and a covariance matrix
 
     #---
 
-    def optimize_kernel(self, source_x, source_f, method=DEFAULT_METHOD, logprior=None, verbose=False, Verbose=False):
+    def _construct_logprob(
+            self,
+            source_x,
+            source_f,
+            logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
+            verbose=False,
+            **kwargs # extra kwargs handed to self.loglikelihood within logprob
+        ):
+        """construct a target function suitable for optimize_kernel and sample_kernel
+        """
+        ## define target function that we will minimize
+        if logprior is None: # set prior to be flat
+            logprior = lambda x: 0.0
+
+        _params = self.kernel._params
+        if fixed is not None:
+            self.update(**fixed) # set the parameters to their fixed values
+            _params = [name for name in _params if name not in fixed] # only update the un-fixed params within logprob
+        
+        def logprob(params):
+            # check parameters to make sure they are reasonable
+            if any(params <= 0) or any(params != params):
+                return -np.infty # avoid this region
+
+            self.update(**dict(zip(_params, params)))
+
+            # evaluate prior to make sure this point is allowed
+            logp = logprior(params)
+            if logp == -np.infty:
+                return -np.infty # don't bother evaluating likelihood
+
+            # evaulate likelihood
+            logl = self.loglikelihood(source_x, source_f, **kwargs) / temperature # temper the likelihood
+
+            # report and return
+            if verbose:
+                print('>>> %s\n  logl=%.6e\n  logp=%.6e' % (self.kernel, logl, logp))
+            return logl + logp
+
+        return logprob
+
+    def _construct_initial_params(self, logprior=None, fixed=None, size=1, verbose=False):
+        """generate initial locations for optimization and/or sampling algorithms
+        """
+        num_params = len(self.kernel.params)
+        num_fixed = len(fixed) if fixed is not None else 0
+        num_dim = num_params - num_fixed
+
+        if verbose:
+            print('initializing %d samples with num_dim = %d (%d params - %d fixed)' % \
+                (size, num_dim, num_params, num_fixed))
+            t0 = time.time()
+
+        # scatter parameters in a unit ball around the initial guess
+        state = np.empty((size, num_dim), dtype=float)
+        n = 0 # the number of accepted points
+
+        if verbose:
+            trials = 0 # the number of tries
+
+        _params = self.kernel.params
+        if fixed is not None: # only generate samples for the params that are not fixed
+            _params = [val for key, val in zip(self.kernel._params, self.kernel.params) if (key not in fixed)] 
+
+        while n < size:
+            if verbose:
+                trials += 1
+
+            # draw parameters
+            params = _params * (1 + np.random.normal(size=num_dim))
+
+            # sanity check them
+            if np.any(params <= 0): # do not allow negative params
+                continue
+            if (logprior is not None) and (logprior(params) == -np.infty): # don't keep this sample; the prior disallows it
+                continue
+
+            # record this sample as it passes all sanity checks
+            state[n] = params
+            n += 1
+
+        if verbose:
+            print('    time : %.6f sec (%d/%d trials accepted)' % (time.time()-t0, n, trials))
+
+        # return
+        return state
+
+    #--------------------
+
+    def optimize_kernel(
+            self,
+            source_x,
+            source_f,
+            method=DEFAULT_METHOD,
+            logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
+            verbose=False,
+            Verbose=False,
+        ):
         """
         Find the set of parameters for the kernel that maximize loglikelihood(source_x, source_f) via scipy.optimize.minimize
         """
@@ -563,19 +705,17 @@ a mean function and a covariance matrix
             raise ImportError('could not import scipy.optimize.minimize')
 
         # Minimize the negative loglikelihood (maximize loglikelihood)
+        logprob = self._construct_logprob(
+            source_x,
+            source_f,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
+            verbose=Verbose,
+        )
 
-        ## define target function that we will minimize
-        if logprior is None: # set prior to be flat
-            logprior = lambda x: 0.0
-
-        def target(params):
-            if any(params <= 0) or any(params != params): # check to make sure parameters are reasonable
-                return np.infty # return a big number so we avoid this region
-            self.kernel.update(**dict(zip(self.kernel._params, params)))
-            ans = self.loglikelihood(source_x, source_f) + logprior(params)
-            if Verbose:
-                print('>>> %s\nloglike=%.6e' % (self.kernel, ans))
-            return -ans
+        # construct initial parameters
+        intial_params = self._construct_initial_params(logprior=logprior, fixed=fixed, size=1, verbose=Verbose)[0]
 
         ## run the minimizer
         if verbose:
@@ -583,8 +723,8 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         result = _minimize(
-            target,
-            self.kernel.params, # needs to be a verctor, not a dictionary
+            lambda params: -logprob(params), # minimize the negative loglike --> maximize loglike
+            initial_params,
             method=method,
         )
 
@@ -592,41 +732,57 @@ a mean function and a covariance matrix
             print('    time : %.6f sec' % (time.time()-t0))
 
         # update the kernel to match the optimal parameters
-        self.kernel.update(**dict(zip(self.kernel._params, result.x)))
+        self.update(*result.x)
 
         # return
         return self.kernel.params_dict
 
     #--------------------
 
-    def _instantiate_sampler(self, source_x, source_f, logprior=None, num_walkers=DEFAULT_NUM_WALKERS, verbose=False):
+    def _instantiate_sampler(
+            self,
+            source_x,
+            source_f,
+            logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
+            num_walkers=DEFAULT_NUM_WALKERS,
+            verbose=False,
+            Verbose=False,
+        ):
 
         if _emcee is None:
             raise ImportError('could not import emcee')
 
+        verbose |= Verbose
+
         # check dimensionality of the sampling problem
-        num_dim = len(self.kernel.params)
+        num_params = len(self.kernel.params)
+        num_fixed = len(fixed) if fixed is not None else 0
+
+        num_dim = num_params - num_fixed
 
         if num_walkers is None:
             num_walkers = 2*num_dim
 
         # instantiate sampler
         if verbose:
-            print('initializing sampler')
+            print('initializing sampler\n    %d walkers\n    %d dimensions (%d params - %d fixed)\n    temperature=%.3e' % \
+                (num_walkers, num_dim, num_params, num_fixed, temperature))
             t0 = time.time()
 
         ## define the target distribution (loglikelihood)
-        if logprior is None:
-            logprior = lambda x: 0.0 # set to be flat
+        logprob = self._construct_logprob(
+            source_x,
+            source_f,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
+            verbose=Verbose,
+        )
 
-        def target(params):
-            self.kernel.update(**dict(zip(self.kernel._params, params)))
-            if np.all(params > 0): # check to make sure parameters are reasonable
-                return self.loglikelihood(source_x, source_f) + logprior(params)
-            else:
-                return -np.infty # avoid these regions of parameter space
-
-        sampler = _emcee.EnsembleSampler(num_walkers, num_dim, target)
+        ## instantiate the sampler
+        sampler = _emcee.EnsembleSampler(num_walkers, num_dim, logprob)
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
@@ -641,6 +797,8 @@ a mean function and a covariance matrix
             source_x,
             source_f,
             logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
             num_burnin=DEFAULT_NUM_BURNIN,
             num_samples=DEFAULT_NUM_SAMPLES,
             num_walkers=DEFAULT_NUM_WALKERS,
@@ -658,7 +816,9 @@ a mean function and a covariance matrix
         sampler, (num_dim, num_walkers) = self._instantiate_sampler(
             source_x,
             source_f,
-            logprior,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
             num_walkers=num_walkers,
             verbose=verbose,
         )
@@ -666,18 +826,7 @@ a mean function and a covariance matrix
         #---
 
         # picking initial positions for walkers
-        if verbose:
-            print('initializing %d walkers (num_dim = %d)' % (num_walkers, num_dim))
-            t0 = time.time()
-
-        # scatter parameters in a unit ball around the initial guess
-        state = self.kernel.params * (1 + np.random.normal(size=(num_walkers, num_dim))/3)
-
-        # make sure all parameters are initially positive
-        state = np.abs(state)
-
-        if verbose:
-            print('    time : %.6f sec' % (time.time()-t0))
+        state = self._construct_initial_params(logprior=logprior, fixed=fixed, size=num_walkers, verbose=verbose)
 
         #---
 
@@ -687,6 +836,7 @@ a mean function and a covariance matrix
             t0 = time.time()
 
         state = sampler.run_mcmc(state, num_burnin, progress=Verbose)
+        sampler.reset() # remove burn-in samples from internal bookkeeping
 
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
@@ -716,7 +866,10 @@ class NearestNeighborInterpolator(Interpolator):
     """implements a NearestNeighbor Gaussian Process, which induces a sparse covariance matrix and allows for \
 matrix inversion in linear time.
 This is based on:
-    Abhirup Datta, Sudipto Banerjee, Andrew O. Finley & Alan E. Gelfand (2016) Hierarchical Nearest-Neighbor Gaussian Process Models for Large Geostatistical Datasets, Journal of the American Statistical Association, 111:514, 800-812, DOI: 10.1080/01621459.2015.1044091
+    Abhirup Datta, Sudipto Banerjee, Andrew O. Finley & Alan E. Gelfand (2016)
+    Hierarchical Nearest-Neighbor Gaussian Process Models for Large Geostatistical Datasets,
+    Journal of the American Statistical Association, 111:514, 800-812, 
+    DOI: 10.1080/01621459.2015.1044091
     """
 
     def __init__(self, kernel, num_neighbors=DEFAULT_NUM_NEIGHBORS, order_by_index=DEFAULT_ORDER_BY_INDEX):
@@ -729,81 +882,302 @@ This is based on:
     # methods pecular to the NNGP algorithm
     # effectively, building a specific decomposition of the covariance matrix
 
+    def _2rank(self, x):
+        """compute the measure by which we order samples
+        """
+        if self.order_by_index is None:
+            return np.sum(x) # this is arbitrary, but hopefully it helps to break ties from regular grid spacing
+        else:
+            return x[self.order_by_index]
+
+    def _2ranks(self, x):
+        return np.array([self._2rank(_) for _ in x])
+
     def _2sorted(self, source_x, source_f=None):
         """sort training data to put it in increasing order
         """
-        order = np.argsort(source_x[:,self.order_by_index])
-        if source_f is None:
-            return source_x[order]
-        else:
-            return source_x[order], source_f[order]
+        order = np.argsort(self._2ranks(source_x))
+        if source_f is not None:
+            source_f = source_f[order]
+        return source_x[order], source_f
 
-    def _2neighbors(self, target_x, source_x):
+    def _2neighbors(self, source_x, target_x=None, verbose=False, Verbose=False):
         """identify which elements in source_x (assumed sorted) are neighbors of target_x
         """
-        source_x = source_x[:,self.order_by_index]
-        inds = np.arange(len(source_x))
+        verbose |= Verbose
 
-        # return a list of the indexes of the neighboring sets for each target
-        # NOTE this may not do what we want if there are ties...
-        return [inds[source_x < x][-self.num_neighbors:] for x in target_x[:,self.order_by_index]]
+        if target_x is None: # find neighbor sets within the reference set
+            if verbose:
+                print('setting target_x = source_x --> finding neighbors within reference set')
+            target_x = source_x
+            discard_index = 0 # index beyond which we discard possible neighbors
+                              # this will discard the current sample, which would also be caught by the exact-match check
+                              # will be updated within loop over target_x
+        else:
+            discard_index = len(source_x) # de facto consider all possible neighbors
 
-    def _2diag(self, source_x, source_f, verbose=False):
-        """construct the diagonal of the cholesky decomposition and the predicted means
+        # grab the value by which we first order the reference set
+        source_order = self._2ranks(source_x)
+        inds = np.arange(len(source_order))
+
+        if verbose:
+            print('%d samples in reference set:' % len(source_x))
+            if Verbose:
+                for X in source_x:
+                    print('    %s' % X)
+
+        # iterate over target_x, identifying neighbors for each point
+        neighbors = []
+        subset = np.empty(len(source_x), dtype=bool)
+
+        if verbose:
+            tnd = 0
+            num_target = len(target_x)
+
+        for x in target_x:
+
+            if verbose:
+                print('processing target %d/%d : %s' % (tnd, num_target, x))
+                tnd += 1 # ok to increment this here; we only use it in this print statement
+
+            subset[:] = False # reset the boolean array
+
+            # first, select based on source_order, only looking up to discard_index
+            subset[:discard_index] = source_order[:discard_index] <= self._2rank(x)
+
+            if verbose:
+                print('    found %d possible neighbors' % np.sum(subset))
+                if Verbose:
+                    for X in source_x[subset]:
+                        print('        %s' % X)
+
+            # make sure there are no exact matches for x within subset
+            # find exact matches and exclude them from the subset
+            matches = np.all(source_x[subset] == x, axis=1)
+
+            if verbose:
+                if np.any(matches):
+                    print('    found %d exact matches' % np.sum(matches))
+                    if Verbose:
+                        for X in source_x[subset][matches]:
+                            print('        %s' % X)
+                else:
+                    print('    no exact matches found!')
+
+            subset[inds[subset][matches]] = False
+
+            if verbose:
+                print('    retained %d possible neighbors after excluding exact matches' % np.sum(subset))
+
+            if np.any(subset): # at least one possible sample within the subset
+                # compute euclidean distance for all these points
+                dist = np.sum((source_x[subset] - x)**2, axis=1)
+                order = np.argsort(dist) # order from smallest to largest
+
+                # record the indecies associated with the smallest euclidean distance in the subset
+                # order subset by smallest to largest distance, then truncate
+                neighbors.append( inds[subset][order][:self.num_neighbors] )
+
+                if verbose:
+                    print('    retained %d out of %d with max %d' % \
+                        (len(neighbors[-1]), np.sum(subset), self.num_neighbors))
+                    if Verbose:
+                        for ind, (X, dist) in enumerate(zip(source_x[subset][order], dist[order])):
+                            print('        %.6e <-- %s%s' % \
+                                (dist, X, '\texcluded' if ind >= self.num_neighbors else '\tneighbor %02d'%ind))
+
+            else: # no neighbors (this should be a special case for at most a few samples)
+                if verbose:
+                    print('    no neighbors!')
+                neighbors.append( [] )
+
+            # increment discard index so we now include the next-biggest element in reference set if needed
+            discard_index += 1
+
+        # return
+        return neighbors # indecies of neighbors for each point in target_x
+
+    #---
+
+    def _sample2diag(self, x, ref_x, ref_f, verbose=False, safe=True):
+        """construct the conditioned distribution for a single sample point
+        this should make parallelization easier in the future
         """
-        source_x, source_f = self._2sorted(source_x, source_f) # sort the training data
-        neighbors = self._2neighbors(source_x, source_x)       # find neighbors within the training data
+        if len(ref_x) == 0: # no neighbors -> just the covariance at this point
+            mean = 0.0 # we assume zero-mean process
+            diag = self.kernel.cov(x, x)[0]
 
-        # iterate and compute diagonal elements of covariance matrix
-        n = len(source_x)
-        diag = np.empty(n, dtype=float)
-        mean = np.empty(n, dtype=float)
+        else: # run the normal GP conditioning but restricted to the neighbor set
+            m, c = Interpolator.condition(self, x, ref_x, ref_f, verbose=verbose)
+            mean = m[0]
+            diag = c[0,0]
 
-        # FIXME? can I do the following calculation without the loop in python (which is slow...)?
-
-        for ind, (x, f, n) in enumerate(zip(source_x, source_f, neighbors)):
-            x = np.array([x]) # cast the the correct shape
-
-            if len(n) == 0: # no neighbors -> just the covariance at this point
-                mean[ind] = 0.0 # we assume zero-mean process
-                diag[ind] = self.kernel.cov(x, x)[0]
-
-            else: # run the normal GP conditioning but restricted to the neighbor set
-                m, c = Interpolator.condition(self, x, source_x[n], source_f[n], verbose=verbose)
-                mean[ind] = m
-                diag[ind] = c[0,0]
+        if safe: # sanity checks
+            assert (mean==mean), 'mean is nan\nkernel=%s\nx=%s\nref_x=%s\nref_f=%s' % \
+                (self.kernel, x, ref_x, ref_f)
+            assert (diag==diag), 'diag is nan\nkernel=%s\nx=%s\nref_x=%s\nref_f=%s' % \
+                (self.kernel, x, ref_x, ref_f)
+            assert (diag > 0), 'marginal variance is negative!\ndiag=%s\nkernel=%s\nx=%s\nref_x=%s\nref_f=%s' % \
+                (diag, self.kernel, x, ref_x, ref_f)
 
         # return
         return mean, diag
 
-    def _2cholesky(self, source_x, source_f):
-        raise NotImplementedError
+    #---
+
+    def _2diag(self, target_x, source_x, source_f, neighbors, verbose=False):
+        """construct the diagonal of the cholesky decomposition and the predicted means
+        """
+        # FIXME?
+        ## can I do the following calculation without the loop in python (which is slow...)?
+        ## or at least parallelize this through multiprocessing.pool?
+        ## NOTE, an attempt to vectorize via numpy.vectorize resulted in *longer* runtimes, so maybe this is good enough?
+
+        ## this construction was found to be consistently (slightly) faster than a for loop
+        ## returns (mean, diag), each of which is a vector with the same length as source_x
+        return np.transpose([self._sample2diag(target_x[[ind]], source_x[neighbors[ind]], source_f[neighbors[ind]], verbose=verbose) \
+            for ind in range(len(target_x))])
+
+    #--------------------
+
+    def _construct_logprob(
+            self,
+            source_x,
+            source_f,
+            logprior=None,
+            fixed=None,
+            temperature=DEFAULT_TEMPERATURE,
+            verbose=False,
+            **kwargs # extra kwargs handed to self.loglikelihood within logprob
+        ):
+        """construct a target function suitable for optimize_kernel and sample_kernel
+        """
+        # identify neighbor sets once (they won't change)
+        source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
+        kwargs['neighbors'] = self._2neighbors(source_x, verbose=verbose) # find neighbors within the training data
+                                                                          # and pass these to likelihood
+        # delegate
+        return Interpolator._construct_logprob(
+            self,
+            source_x,
+            source_f,
+            logprior=logprior,
+            fixed=fixed,
+            temperature=temperature,
+            verbose=verbose,
+            **kwargs # extra kwargs handed to self.loglikelihood within logprob, which now contains "neighbors"
+        )
 
     #---
 
-    def compress(self, source_x, source_f, verbose=False, Verbose=False):
-        """compress the training set using the NNGP decomposition of the covariance matrix
+    def loglikelihood(self, source_x, source_f, neighbors=None, verbose=False):
+        """compute the loglikelihood using the NNGP decomposition of the covariance matrix
         """
-        raise NotImplementedError
+        if neighbors is None: # otherwise, we assume everthing has already been sorted and neighbor sets have been identified
+            source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
+            neighbors = self._2neighbors(source_x, verbose=verbose)  # find neighbors within the training data
 
-    def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
-        """used the compressed representation of the training set to predict the mean at arbitrary points
-        """
-        raise NotImplementedError
+        # compute the combination of 1D Gaussians implicit within the NNGP decomposition
+        mean, diag = self._2diag(source_x, source_x, source_f, neighbors, verbose=verbose)
 
-    #---
+        # loglike is the sum of independnet 1D Gaussians
+        return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)
+
+    #--------------------
 
     def condition(self, target_x, source_x, source_f, verbose=False, Verbose=False):
         """compute conditioned distriution using the NNGP decomposition of the covariance matrix
         """
-        raise NotImplementedError
+        verbose |= Verbose
 
-    def loglikelihood(self, source_x, source_f, verbose=False):
-        """compute the loglikelihood using the NNGP decomposition of the covariance matrix
+        # first, find neighbors of target_x within source_x
+        if verbose:
+            print('finding neighbors for %d target_x within %d source_x samples' % (len(target_x), len(source_x)))
+            t0 = time.time()
+
+        source_x, source_f = self._2sorted(source_x, source_f=source_f) # sort the training data
+        neighbors = self._2neighbors(source_x, target_x=target_x, verbose=Verbose)  # find neighbors
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # now, assuming that source_x are the reference set, target_x are all (conditionally) independent
+        # so we can iterate and evaluate predictions for each target_x separately
+        if verbose:
+            print('computing predicted means, variances independently')
+            t0 = time.time()
+
+        # FIXME!
+        ### I may be able to do this more efficiently if I batch jobs based on groups with the same neighbor set
+        ### --> avoid repeated inversions of the same source matrix
+
+        mean, diag = self._2diag(target_x, source_x, source_f, neighbors, verbose=Verbose)
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # format and return
+        return mean, np.diag(diag) # cast this to a matrix
+
+    #--------------------
+
+    def compress(self, source_x, source_f, verbose=False, Verbose=False):
+        """compress the training set using the NNGP decomposition of the covariance matrix
         """
-        # first, compute the diagonal of the cholesky decomposition of the covariance matrix
-        # NOTE! this is all we need to take the determinant of this decomposition
-        mean, diag = self._2diag(source_x, source_f, verbose=verbose)
+        # construct covariance matrix
+        if verbose:
+            print('constructing %d x %d source-source NearestNeighbor covariance matrix with %d neighbors' % \
+                (len(source_x), len(source_x), self.num_neighbors))
+            t0 = time.time()
 
-        # loglike is the sum of independnet 1D Gaussians
-        return -0.5 * np.sum((mean-source_f)**2 / diag) - 0.5*np.sum(np.log(diag)) - 0.5*len(source_x)*np.log(2*np.pi)
+        raise NotImplementedError('''
+        We need to replace this with the NNGP covariance matrix. We should also be able to speed up the inversion dramatically (i.e., do not use np.linalg.inv but do the inversion by hand)
+
+        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        inv_cov_src_src = np.linalg.inv(cov_src_src)
+''')
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # compute the contraction that can be used to compute the mean
+        if verbose:
+            print('compressing observations')
+            t0 = time.time()
+        compressed = inv_cov_src_src @ source_f
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # return
+        return compressed
+
+    #---
+
+    def predict(self, target_x, source_x, compressed, verbose=False, Verbose=False):
+        """used the compressed representation of the training set to predict the mean at arbitrary points
+        """
+        # construct covariane matrix
+        if verbose:
+            print('constructing %d x %d target-source NNGP covariance matrix with %d neighbors' % \
+                (len(target_x), len(source_x), self.num_neighbors))
+            t0 = time.time()
+
+        raise NotImplementedError('''
+        we need to construct the off-diagonal part of the NNGP covariance matrix. The rest of this should follow as-is
+
+        cov_tar_src = self._x2cov(target_x, source_x, self.kernel, verbose=Verbose)
+''')
+
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # compute the mean
+        if verbose:
+            print('computing conditioned mean')
+            t0 = time.time()
+        mean = cov_tar_src @ compressed
+        if verbose:
+            print('    time : %.6f sec' % (time.time()-t0))
+
+        # return
+        return mean
