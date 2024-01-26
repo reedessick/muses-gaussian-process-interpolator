@@ -6,6 +6,8 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
+import numpy as np
+
 from argparse import ArgumentParser
 
 ### non-standard libraries
@@ -31,6 +33,12 @@ igroup.add_argument('--kernel-params', default=None, type=str,
 
 #---
 
+wgroup = parser.add_argument_group('workflow options')
+
+wgroup.add_argument('--seed', default=None, type=int)
+
+#---
+
 ogroup = parser.add_argument_group('output-arguments')
 
 ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
@@ -44,6 +52,13 @@ ogroup.add_argument('outpath', type=str,
 args = parser.parse_args()
 
 args.verbose |= args.time_execution
+
+#-------------------------------------------------
+
+if args.seed is not None:
+    if args.verbose:
+        print('setting numpy.seed=%d' % args.seed)
+    np.seed(args.seed)
 
 #-------------------------------------------------
 
