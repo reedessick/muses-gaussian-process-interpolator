@@ -8,6 +8,11 @@ from configparser import ConfigParser
 
 import numpy as np
 
+try:
+    import h5py
+except:
+    h5py = None
+
 # non-standard libraries
 from . import mgpi
 
@@ -24,7 +29,13 @@ def _factory(klass):
 
 #-------------------------------------------------
 
-__FILE_TYPE_NAME__ = 'type' # the protected option name that specifies the type of file within the section
+__FILETYPE_NAME__ = 'type' # the protected option name that specifies the type of file within the section
+
+__PATH_NAME__ = 'path' # the protected option name that specifies the path of the file within the section
+__X_NAME__ = 'x_columns' # protected option specifying the names and order of the x-columns to used within interpolator
+__F_NAME__ = 'f_column'  # protected option specifying the target function which we will emulate
+__PRIOR_NAME__ = 'prior' # used to identify options that are associated with prior limits on data in the table
+__DOWNSAMPLE_NAME__ = 'downsample' # used to specify how we should reduce the data's size
 
 def parse_table(path, section=None, verbose=False):
     """load data based on a config file
@@ -44,60 +55,47 @@ def parse_table(path, section=None, verbose=False):
     if verbose:
         print('    reading section='+section)
 
-    # now parse that section
-    assert config.has_option(section, __FILE_TYPE_NAME__), 'could not find %s in section=%s' % (__FILE_TYPE_NAME__, section)
-    filetype = config.get(section, __FILE_TYPE_NAME__)
-
-    if filetype == 'ascii':
-        return parse_ascii_data(config, section, verbose=verbose)
-
-    elif filetype == 'stellarcollapse':
-        return parse_stellar_collapse_data(config, section, verbose=verbose)
-
-    else:
-        raise ValueError('could not understand %s=%s' % (__FILE_TYPE_NAME__, filetype))
-
-#------------------------
-
-__ASCII_PATH_NAME__ = 'path' # the protected option name that specifies the path of the file within the section
-__ASCII_X_NAME__ = 'x_columns' # protected option specifying the names and order of the x-columns to used within interpolator
-__ASCII_F_NAME__ = 'f_column'  # protected option specifying the target function which we will emulate
-__ASCII_PRIOR_NAME__ = 'prior' # used to identify options that are associated with prior limits on data in the table
-__ASCII_DOWNSAMPLE_NAME__ = 'downsample' # used to specify how we should reduce the data's size
-
-def parse_ascii_data(config, section, verbose=False):
-    """parse dat, txt, or csv tabular data
-    """
+    # handle standard (required) options
     options = config.options(section)
 
     # load the path
-    for option in [__ASCII_PATH_NAME__, __ASCII_X_NAME__, __ASCII_F_NAME__]:
-        assert option in options, 'could not find %s in section=%s' % (option, section)
+    for option in [__PATH_NAME__, __X_NAME__, __F_NAME__]:
+        assert config.has_option(section, option), 'could not find %s in section=%s' % (option, section)
 
-    path = config.get(section, __ASCII_PATH_NAME__)
-    xcols = config.get(section, __ASCII_X_NAME__).split()
-    fcol = config.get(section, __ASCII_F_NAME__)
+    path = config.get(section, __PATH_NAME__)
+    xcols = config.get(section, __X_NAME__).split()
+    fcol = config.get(section, __F_NAME__)
 
     # sanity check
-    assert len(xcols) == len(set(xcols)), 'cannot have repeated values in %s=%s' % (__ASCII_X_NAME__, ', '.join(xcols))
-    assert fcol not in xcols, 'cannot have %s=%s in %s=%s' % (__ASCII_F_NAME__, fcol, __ASCII_X_NAME__, ', '.join(xcols))
+    assert len(xcols) == len(set(xcols)), 'cannot have repeated values in %s=%s' % (__X_NAME__, ', '.join(xcols))
+    assert fcol not in xcols, 'cannot have %s=%s in %s=%s' % (__F_NAME__, fcol, __X_NAME__, ', '.join(xcols))
 
     # load priors
     priors = dict()
-    for option in options:
+    for option in config.options(section):
         opt = option.split()
-        if opt[0] == __ASCII_PRIOR_NAME__: # treat this as a prior
+        if opt[0] == __PRIOR_NAME__: # treat this as a prior
             priors[opt[1]] = [float(_) for _ in config.get(section, option).split()]
 
     if verbose:
-        print('    loading ascii data from: '+path)
+        print('    loading data from: '+path)
         print('    source_x\n        %s' % ('\n        '.join(xcols)))
         print('    source_f\n        %s' % fcol)
         if priors:
             print('    priors\n        %s' % ('\n        '.join('%.3e <= %s <= %.3e' % (m, c, M) for c, (m,M) in priors.items())))
 
     # load the data
-    data = load_ascii_data(path)
+    assert config.has_option(section, __FILETYPE_NAME__), 'could not find %s in section=%s' % (__FILETYPE_NAME__, section)
+    filetype = config.get(section, __FILETYPE_NAME__)
+
+    if filetype == 'ascii':
+        data = load_ascii_data(path, verbose=verbose)
+
+    elif filetype == 'stellarcollapse':
+        data = load_stellarcollapse_data(path, verbose=verbose)
+
+    else:
+        raise ValueError('could not understand %s=%s' % (__FILETYPE_NAME__, filetype))
 
     if verbose:
         print('    found %d samples' % len(data))
@@ -112,18 +110,18 @@ def parse_ascii_data(config, section, verbose=False):
             m, M = priors[col.lower()]
             keep = (m <= data[col]) * (data[col] <= M)
             if verbose:
-                print('    retaining %d samples after imposing: %.3e <= %s <= %.3e' % (np.sum(keep), m, col, M))
+                print('retaining %d samples after imposing: %.3e <= %s <= %.3e' % (np.sum(keep), m, col, M))
             data = data[keep]
 
     # downsample the data
-    if __ASCII_DOWNSAMPLE_NAME__ in options:
-        downsample = config.getint(section, __ASCII_DOWNSAMPLE_NAME__)
+    if __DOWNSAMPLE_NAME__ in options:
+        downsample = config.getint(section, __DOWNSAMPLE_NAME__)
         if verbose:
-            print('    downsampling data to retain 1 out of every %d samples' % downsample)
+            print('downsampling data to retain 1 out of every %d samples' % downsample)
         data = data[::downsample]
 
         if verbose:
-            print('        retained %d samples' % len(data))
+            print('    retained %d samples' % len(data))
 
     # now extract
     source_x = np.transpose([data[col] for col in xcols])
@@ -132,11 +130,12 @@ def parse_ascii_data(config, section, verbose=False):
     # return
     return (source_x, source_f), (xcols, fcol)
 
-#-----------
+#------------------------
 
 def load_ascii_data(path, verbose=False):
     if verbose:
-        print('loading: '+path)
+        print('loading tabular data from: '+path)
+
     return np.genfromtxt(
         path,
         names=True,
@@ -150,10 +149,11 @@ def save_ascii_data(path, source_x, source_f, xcols=None, fcol='f', verbose=Fals
     """
     nsmp, ndim = source_x.shape
 
-    if xcols is None:
-        xcols = ['x%d'%dim for dim in range(ndim)]
     if verbose:
         print('writing %d samples with dimension (%d+1) to: %s' % (nsmp, ndim, path))
+
+    if xcols is None:
+        xcols = ['x%d'%dim for dim in range(ndim)]
 
     delimiter = ',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else ' '
 
@@ -167,17 +167,57 @@ def save_ascii_data(path, source_x, source_f, xcols=None, fcol='f', verbose=Fals
 
 #------------------------
 
-def parse_stellarcollapse_data(config, section, verbose=False):
+def load_stellarcollapse_data(path, verbose=False):
     """parse tabular data from HDF structures defined by: https://stellarcollapse.org/equationofstate.html
     """
-    raise NotImplementedError
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    # load the data
+    if verbose:
+        print('loading tabular data from: '+path)
+
+    with h5py.File(path, 'r') as obj:
+        # read in the values that define the table
+        ye = obj['ye'][:]          # electron fraction
+        logr = obj['logrho'][:]    # log of baryon density
+        logt = obj['logtemp'][:]   # log of the temperature
+
+        # grab all datasets with the correct shape
+        shape = (len(ye), len(logt), len(logr))
+        data = dict([(key, obj[key][:]) for key in obj.keys() if np.shape(obj[key])==shape])
+
+        # reformat ye, logr, logt to match the rest of the data
+        data['ye'], data['logtemp'], data['logrho'] = np.meshgrid(ye, logt, logr, indexing='ij')
+
+    # flatten data and cast into numpy structured array
+    atad = np.empty(np.prod(shape), dtype=[(key, float) for key in data.keys()])
+    for key in atad.dtype.names:
+        atad[key] = data[key].flatten()
+
+    # return
+    return atad
 
 #-----------
 
-def save_stellarcollapse_data(*args, **kwargs):
+def save_stellarcollapse_data(path, source_x, source_f, xcols=None, fcol='f', verbose=False):
     """write tabular data into HDF structures defined by: https://stellarcollapse.org/equationofstate.html
     """
-    raise NotImplementedError
+
+    # FIXME! this currently dumps the data into separate datasets instead of attempting to make a regular grid...
+
+    nsmp, ndim = source_x.shape
+
+    if verbose:
+        print('writing %d samples with dimension (%d+1) to: %s' % (nsmp, ndim, path))
+
+    if xcols is None:
+        xcols = ['x%d'%dim for dim in range(ndim)]
+
+    with h5py.File(path, 'w') as obj:
+        for dim, xcol in enumerate(xcols):
+            obj.create_dataset(name=xcol, data=source_x[:,dim])
+        obj.create_dataset(name=fcol, data=source_f)
 
 #-------------------------------------------------
 
