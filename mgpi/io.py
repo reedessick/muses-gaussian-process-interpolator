@@ -97,11 +97,7 @@ def parse_ascii_data(config, section, verbose=False):
             print('    priors\n        %s' % ('\n        '.join('%.3e <= %s <= %.3e' % (m, c, M) for c, (m,M) in priors.items())))
 
     # load the data
-    data = np.genfromtxt(
-        path,
-        names=True,
-        delimiter=',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else None,
-    )
+    data = load_ascii_data(path)
 
     if verbose:
         print('    found %d samples' % len(data))
@@ -135,6 +131,17 @@ def parse_ascii_data(config, section, verbose=False):
 
     # return
     return (source_x, source_f), (xcols, fcol)
+
+#-----------
+
+def load_ascii_data(path, verbose=False):
+    if verbose:
+        print('loading: '+path)
+    return np.genfromtxt(
+        path,
+        names=True,
+        delimiter=',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else None,
+    )
 
 #-----------
 
@@ -220,36 +227,81 @@ arg2 = ...
 
 #------------------------
 
-def parse_kernel(path, verbose=False):
-    """load a kernel based on a config file.
-Multiple kernels can be defined in the same INI as separate sections. In this case, we return a CombinedKernel constituting the sum of the separate kernels.
-Each section in the INI should follow the format
+__INTERPOLATOR_NAME__ = 'Interpolator'
+__INTERPOLATOR_TYPE_NAME__ = 'type'
+__INTERPOLATOR_KERNEL_NAME__ = 'kernel'
 
-[Name]
-type = Kernel # change this to match the name of the type of kernel you want to instantiate
-arg0 = ...    # list the values for the arguments that will be passed to Kernel.__init__ in the order they should be passed
-arg1 = ...
-arg2 = ...
-    """
+def parse_interpolator(path, verbose=False):
+    """load an interpolator based on a config file.
+There should be a single section called %(name)s that specifies the interpolator. This section should have the format
+[%(name)s]
+%(type)s = Interpolator
+kernel = sec1 sec2 # can repeat multiple sections to build a CombinedKernel
+kwarg0 = ...       # the rest of the options will be passed to the Interpolator's instantiate
+kwarg1 = ...
+kwarg2 = ...
+    """ % {'name':__INTERPOLATOR_NAME__, 'type':__INTERPOLATOR_TYPE_NAME__}
 
     if verbose:
-        print('reading kernel config from: '+path)
+        print('reading interpolator config from: '+path)
     config = ConfigParser()
     config.read(path)
 
-    # iterate through sections and parse each in turn
-    kernels = []
-    for name in config.sections():
+    # set up the options for the interpolator
+    assert config.has_section(__INTERPOLATOR_NAME__), 'interpolator config must have section [%s]' % __INTERPOLATOR_NAME__
+    options = config.options(__INTERPOLATOR_NAME__)
+
+    assert __INTERPOLATOR_TYPE_NAME__ in options, \
+        'cannot find %s in section=%s' % (__INTERPOLATOR_NAME__, __INTERPOLATOR_TYPE_NAME__)
+
+    # grab the instantiator from dynamic list of implemented kernels
+    interp_type = config.get(__INTERPOLATOR_NAME__, __INTERPOLATOR_TYPE_NAME__)
+    options.remove(__INTERPOLATOR_TYPE_NAME__)
+
+    # iterate over kernels and load each section in turn
+    if verbose:
+        print('parsing kernel')
+
+    kernel = []
+    for name in config.get(__INTERPOLATOR_NAME__, __INTERPOLATOR_KERNEL_NAME__).split():
+        assert config.has_section(name), 'can not find section=%s' % name
         try:
-            kernels.append(parse_kernel_section(config, name, verbose=verbose))
+            kernel.append(parse_kernel_section(config, name, verbose=verbose))
         except:
             warnings.Warn('could not parse section=%s. Skipping...' % name)
 
-    # sanity check results
-    assert kernels, 'could not find any kernels within: '+path
+    assert kernel, 'could not find any kernels within: '+path
+    if len(kernel) > 1:
+        kernel = mgpi.CombinedKernel(*kernel)
+    else:
+        kernel = kernel[0]
+
+    options.remove(__INTERPOLATOR_KERNEL_NAME__)
+
+    # get the rest of the options as kwargs
+    kwargs = dict()
+    for option in options:
+        try:
+            val = config.getint(__INTERPOLATOR_NAME__, option)
+        except ValueError:
+            try:
+                val = config.getfloat(__INTERPOLATOR_NAME__, option)
+            except ValueError:
+                try:
+                    val = config.getboolean(__INTERPOLATOR_NAME__, option)
+                except ValueError:
+                    val = config.get(__INTERPOLATOR_NAME__, option)
+        kwargs[option] = val
+
+    # instantiate the interpolator
+    if verbose:
+        print('instantiating interpolator')
+        print('  %s' % interp_type)
+        print('  %s' % kernel)
+        for key, val in kwargs.items():
+            print('  %s = %s' % (key, val))
+
+    interp = _factory(mgpi.Interpolator)[interp_type](kernel, **kwargs)
 
     # return
-    if len(kernels) > 1:
-        return mgpi.CombinedKernel(*kernels)
-    else:
-        return kernels[0]
+    return interp

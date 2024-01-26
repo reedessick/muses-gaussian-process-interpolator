@@ -6,15 +6,10 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
-import os
-import time
-
-import numpy as np
-
 from argparse import ArgumentParser
 
 ### non-standard libraries
-import mgpi
+from mgpi import io
 
 #-------------------------------------------------
 
@@ -28,24 +23,19 @@ parser = ArgumentParser()
 
 igroup = parser.add_argument_group('input data')
 
-igroup.add_argument('eos_path', type=str,
-    help='please provide a CSV with tabulated EoS data')
-igroup.add_argument('hyperparameter_path', type=str,
-    help='please pass the path to a CSV containing sets of hyperparameters (one set per row)')
+igroup.add_argument('data', type=str,
+    help='please provide an INI describing tabular data')
+igroup.add_argument('--section', default=None, type=str,
+    help='the section from the data INI that should be read.')
 
-igroup.add_argument('--downsample', default=DEFAULT_DOWNSAMPLE, type=int,
-    help='downsample the input data to keep only 1 sample out of this many. \
-DEFAULT=%d' % DEFAULT_DOWNSAMPLE )
+igroup.add_argument('interpolator', type=str,
+    help='please provide an INI describing an interpolator')
 
-igroup.add_argument('-d', '--dependent-column', type=str, required=True,
-    help='the dependent column predicted by the Gaussian process (ie, "f" in f(x, y, z)). \
-We only support scalar output from the Gaussian process.')
+#---
+
+ggroup = parser.add_argument_group('grid parameters')
 
 ### FIXME : also include parameters that describe the grid over which we make predictions
-
-igroup.add_argument('-i', '--independent-column', default=[], type=str, action='append', required=True,
-    help='one of the independent columns used within the Gaussian process (ie, "x", "y", or "z" in f(x, y, z)). \
-We can support multi-variate input to the Gaussian process. As such, this option can be repeated.')
 
 #---
 
@@ -54,8 +44,8 @@ ogroup = parser.add_argument_group('output-arguments')
 ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
 ogroup.add_argument('--time-execution', default=False, action='store_true')
 
-ogroup.add_argument('-o', '--output-dir', default='.', type=str)
-ogroup.add_argument('-t', '--tag', default='', type=str)
+ogroup.add_argument('outpath', type=str,
+    help='the path into which we write compressed data')
 
 #---
 
@@ -63,60 +53,13 @@ args = parser.parse_args()
 
 args.verbose |= args.time_execution
 
-os.makedirs(args.output_dir, exist_ok=True)
-
-if args.tag:
-    args.tag = "_"+args.tag
-
-#------------------------
-
-Ndim = len(args.independent_column)
-
 #-------------------------------------------------
 
-# load EoS data from a table
+# load data
+(source_x, source_f), (xcols, fcol) = io.parse_table(args.data, section=args.section, verbose=args.verbose)
 
-if args.verbose:
-    print('loading data from : '+args.eos_path)
-    if args.time_execution:
-        t0 = time.time()
-
-# load sample data
-data = np.genfromtxt(args.eos_path, delimiter=',', names=True)
-
-if args.verbose:
-    print('    found data with shape :', shape)
-    if args.time_execution:
-        print('    time : %.6f sec' % (time.time()-t0))
-
-#------------------------
-
-# grab the relevant data and downsample them as requested
-
-### check that all requested columns are present
-for col in [args.dependent_column] + args.independent_column:
-    assert col in data.dtype.names, \
-        'requested column (%s) not present in %s' % (col, args.eos_path)
-
-### grab dependent column. At the moment, we only support scalar predictions
-### shape : (Nsmp,)
-f = data[args.dependent_column][::args.downsample]
-
-### grab the independent columns
-### shape = (Nsmp, Ndim)
-x = np.transpose([data[col][::args.downsample] for col in args.independent_column])
-
-if args.verbose:
-    print('    downselected data to %d dependent variables (shape : %s) and 1 dependent variable (shape : %s)' \
-        % (Ndim, np.shape(x), np.shape(f)))
-
-#-------------------------------------------------
-
-# load hyperparameters
-
-raise NotImplementedError('''\
-load hyperparameters
-''')
+# load interpolator
+interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
 
 #-------------------------------------------------
 
@@ -124,60 +67,20 @@ load hyperparameters
 
 raise NotImplementedError('''\
 define the grid over which we want to compute the GPR predictions
+target_x = ...
 ''')
 
 #-------------------------------------------------
 
 # perform the regression
 
-raise NotImplementedError('''\
 if args.verbose:
-    print('estimating appropriate hyperparameters and constructing kernel')
-    if args.time_execution:
-        t0 = time.time()
+    print('generating conditioned mean and covariance')
 
-# now, let's guess at appropriate hyperparameters
-ave = np.mean(source_f)       ### mean of the process
-
-### FIXME! pick these based on maximizing the marginal likelihood for (source_f, source_x)
-
-sigma = np.std(source_f) * 2  ### variance based on spread of the function
-
-lengths = [                   ### based on the average grid spacing
-    2 * np.mean(np.diff(baryon_chemical_potential[0,:])),
-    2 * np.mean(np.diff(temperature[:,0])),
-]
-
-# construct a kernel
-kernel = mgpi.CombinedKernel(
-    mgpi.SquaredExponentialKernel(sigma, *lengths),
-    mgpi.WhiteNoiseKernel(sigma/100), # a small white noise component for numerical stability
-)
-
-if args.time_execution:
-    print('    time : %.6f sec' % (time.time()-t0))
-
-#------------------------
-
-if args.verbose:
-    print('computing interpolation estimate')
-
-# now let's compute estimates of the speed of sound at the test points
-mean, cov = mgpi.condition(
-    target_x,
-    source_x,
-    source_f - ave,
-    kernel,
-    verbose=args.verbose,
-    Verbose=args.time_execution,
-)
-mean += ave ### add back in the mean that I substracted
-''')
+mean, cov = interpolator.condition(target_x, source_x, source_f, verbose=args.time_execution)
 
 #-------------------------------------------------
 
 # save the output
 
-raise NotImplementedError('''\
-write the output to disk
-''')
+raise NotImplementedError('write the output to disk')
