@@ -62,13 +62,18 @@ def parse_table(path, section=None, verbose=False):
 __ASCII_PATH_NAME__ = 'path' # the protected option name that specifies the path of the file within the section
 __ASCII_X_NAME__ = 'x_columns' # protected option specifying the names and order of the x-columns to used within interpolator
 __ASCII_F_NAME__ = 'f_column'  # protected option specifying the target function which we will emulate
+__ASCII_PRIOR_NAME__ = 'prior' # used to identify options that are associated with prior limits on data in the table
+__ASCII_DOWNSAMPLE_NAME__ = 'downsample' # used to specify how we should reduce the data's size
 
 def parse_ascii_data(config, section, verbose=False):
     """parse dat, txt, or csv tabular data
     """
+    options = config.options(section)
+
     # load the path
     for option in [__ASCII_PATH_NAME__, __ASCII_X_NAME__, __ASCII_F_NAME__]:
-        assert config.has_option(section, option), 'could not find %s in section=%s' % (option, section)
+        assert option in options, 'could not find %s in section=%s' % (option, section)
+
     path = config.get(section, __ASCII_PATH_NAME__)
     xcols = config.get(section, __ASCII_X_NAME__).split()
     fcol = config.get(section, __ASCII_F_NAME__)
@@ -77,10 +82,19 @@ def parse_ascii_data(config, section, verbose=False):
     assert len(xcols) == len(set(xcols)), 'cannot have repeated values in %s=%s' % (__ASCII_X_NAME__, ', '.join(xcols))
     assert fcol not in xcols, 'cannot have %s=%s in %s=%s' % (__ASCII_F_NAME__, fcol, __ASCII_X_NAME__, ', '.join(xcols))
 
+    # load priors
+    priors = dict()
+    for option in options:
+        opt = option.split()
+        if opt[0] == __ASCII_PRIOR_NAME__: # treat this as a prior
+            priors[opt[1]] = [float(_) for _ in config.get(section, option).split()]
+
     if verbose:
         print('    loading ascii data from: '+path)
         print('    source_x\n        %s' % ('\n        '.join(xcols)))
         print('    source_f\n        %s' % fcol)
+        if priors:
+            print('    priors\n        %s' % ('\n        '.join('%.3e <= %s <= %.3e' % (m, c, M) for c, (m,M) in priors.items())))
 
     # load the data
     data = np.genfromtxt(
@@ -89,10 +103,33 @@ def parse_ascii_data(config, section, verbose=False):
         delimiter=',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else None,
     )
 
-    # now extract and format the data
+    if verbose:
+        print('    found %d samples' % len(data))
+
+    # check that we have the columns we need
     for col in xcols + [fcol]:
         assert col in data.dtype.names, 'required column=%s not present!' % col
 
+    # apply priors
+    for col in data.dtype.names:
+        if col.lower() in priors:
+            m, M = priors[col.lower()]
+            keep = (m <= data[col]) * (data[col] <= M)
+            if verbose:
+                print('    retaining %d samples after imposing: %.3e <= %s <= %.3e' % (np.sum(keep), m, col, M))
+            data = data[keep]
+
+    # downsample the data
+    if __ASCII_DOWNSAMPLE_NAME__ in options:
+        downsample = config.getint(section, __ASCII_DOWNSAMPLE_NAME__)
+        if verbose:
+            print('    downsampling data to retain 1 out of every %d samples' % downsample)
+        data = data[::downsample]
+
+        if verbose:
+            print('        retained %d samples' % len(data))
+
+    # now extract
     source_x = np.transpose([data[col] for col in xcols])
     source_f = data[fcol]
 
@@ -101,10 +138,25 @@ def parse_ascii_data(config, section, verbose=False):
 
 #-----------
 
-def save_ascii_data(*args, **kwargs):
+def save_ascii_data(path, source_x, source_f, xcols=None, fcol='f', verbose=False):
     """write tabular data into an ascii file
     """
-    raise NotImplementedError
+    nsmp, ndim = source_x.shape
+
+    if xcols is None:
+        xcols = ['x%d'%dim for dim in range(ndim)]
+    if verbose:
+        print('writing %d samples with dimension (%d+1) to: %s' % (nsmp, ndim, path))
+
+    delimiter = ',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else ' '
+
+    np.savetxt(
+        path,
+        np.transpose([source_x[:,dim] for dim in range(ndim)] + [source_f]),
+        header=delimiter.join(list(xcols)+[fcol]),
+        comments='',
+        delimiter=delimiter,
+    )
 
 #------------------------
 
