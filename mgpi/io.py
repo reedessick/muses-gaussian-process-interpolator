@@ -221,6 +221,51 @@ def save_stellarcollapse_data(path, source_x, source_f, xcols=None, fcol='f', ve
 
 #-------------------------------------------------
 
+def load_compressed_data(path, verbose=False):
+    """load compressed data from an HDF file
+    """
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    if verbose:
+        print('loading compressed datasets from: '+path)
+
+    with h5py.File(path, 'r') as obj:
+        xcols = obj['xcols'][:]
+        source_x = obj['source_x'][:]
+        params = obj['params'][:]
+        compressed = obj['compressed'][:]
+
+    if verbose:
+        print('found %d compressed datasets for %d source_x (%s)' % (len(compressed), len(source_x), ', '.join(xcols)))
+
+    return source_x, compressed, params, xcols
+
+#------------------------
+
+def save_compressed_data(path, source_x, compressed, params, xcols=None, verbose=False):
+    """save compressed data into an HDF file
+    """
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    if verbose:
+        print('saving %d compressed datasets into: %s' % (len(compressed), path))
+
+    nsmp, ndim = source_x.shape
+
+    if xcols is None:
+        xcols = ['x%d'%dim for dim in range(ndim)]
+
+    with h5py.File(path, 'w') as obj:
+        obj.create_dataset(name='xcols', data=xcols)
+        obj.create_dataset(name='source_x', data=source_x)
+
+        obj.create_dataset(name='params', data=params)
+        obj.create_dataset(name='compressed', data=compressed)
+
+#-------------------------------------------------
+
 __KERNEL_TYPE_NAME__ = 'type' # the protected option name that specifies the type of kernel within the section
 
 def parse_kernel_section(config, section, verbose=False):

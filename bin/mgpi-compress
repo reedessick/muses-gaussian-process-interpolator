@@ -79,4 +79,11 @@ for params in params:
 #------------------------
 
 # write compressed data to disk
-raise NotImplementedError('write compressed data along with source_x to disk') 
+io.save_compressed_data(
+    args.outpath,
+    source_x,
+    compressed,
+    params,
+    xcols=xcols,
+    verbose=args.verbose,
+)
