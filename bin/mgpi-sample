@@ -6,12 +6,10 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
-import numpy as np
-
 from argparse import ArgumentParser
 
 ### non-standard libraries
-from mgpi import io
+from mgpi import (io, utils)
 
 #-------------------------------------------------
 
@@ -56,9 +54,7 @@ args.verbose |= args.time_execution
 #-------------------------------------------------
 
 if args.seed is not None:
-    if args.verbose:
-        print('setting numpy.seed=%d' % args.seed)
-    np.seed(args.seed)
+    utils.seed(args.seed, verbose=args.verbose)
 
 #-------------------------------------------------
 

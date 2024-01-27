@@ -1,4 +1,4 @@
-"""a module that standarizes logic for reading/writing data from disk as well as constructing GP kernels and interpolators
+"""a module that standarizes logic for reading/writing data from disk and instantiating interpolators
 """
 __author__ = "Reed Essick (reed.essick@gmail.com)"
 
@@ -14,18 +14,9 @@ except:
     h5py = None
 
 # non-standard libraries
-from . import mgpi
-
-#-------------------------------------------------
-
-def _factory(klass):
-    """discover and return all the subclasses of a particular class
-    """
-    ans = dict()
-    for obj in klass.__subclasses__():
-        ans[obj.__name__] = obj
-        ans.update(_factory(obj))
-    return ans
+from .utils import _factory
+from .kernels import (Kernel, CombinedKernel)
+from .interpolators import Interpolator
 
 #-------------------------------------------------
 
@@ -283,7 +274,7 @@ arg2 = ...
     assert config.has_option(section, __KERNEL_TYPE_NAME__), 'could not find %s in section=%s' % (__KERNEL_TYPE_NAME__, section)
 
     # grab the instantiator from dynamic list of implemented kernels
-    kernel = _factory(mgpi.Kernel)[config.get(section, __KERNEL_TYPE_NAME__)]
+    kernel = _factory(Kernel)[config.get(section, __KERNEL_TYPE_NAME__)]
 
     # now parse the options
     options = config.options(section)
@@ -357,7 +348,7 @@ kwarg2 = ...
 
     assert kernel, 'could not find any kernels within: '+path
     if len(kernel) > 1:
-        kernel = mgpi.CombinedKernel(*kernel)
+        kernel = CombinedKernel(*kernel)
     else:
         kernel = kernel[0]
 
@@ -386,7 +377,7 @@ kwarg2 = ...
         for key, val in kwargs.items():
             print('  %s = %s' % (key, val))
 
-    interp = _factory(mgpi.Interpolator)[interp_type](kernel, **kwargs)
+    interp = _factory(Interpolator)[interp_type](kernel, **kwargs)
 
     # return
     return interp
