@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+
+"""use compressed Gaussian process data to predict the value of a function
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+from argparse import ArgumentParser
+
+### non-standard libraries
+from mgpi import io
+
+#-------------------------------------------------
+
+DEFAULT_DOWNSAMPLE = 1 # de facto, no downselection by default
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+#---
+
+igroup = parser.add_argument_group('input data')
+
+igroup.add_argument('compressed', type=str,
+    help='please provide an HDF file containing compressed data')
+
+igroup.add_argument('interpolator', type=str,
+    help='please provide an INI describing an interpolator')
+
+#---
+
+ggroup = parser.add_argument_group('grid parameters')
+
+### FIXME : also include parameters that describe the grid over which we make predictions
+
+#---
+
+ogroup = parser.add_argument_group('output-arguments')
+
+ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
+ogroup.add_argument('--time-execution', default=False, action='store_true')
+
+ogroup.add_argument('outpath', type=str,
+    help='the path into which we write compressed data')
+
+#---
+
+args = parser.parse_args()
+
+args.verbose |= args.time_execution
+
+#-------------------------------------------------
+
+# load data
+source_x, compressed, params, xcols = io.load_compressed_data(args.compressed, verbose=args.verbose)
+
+# load interpolator
+interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
+
+#-------------------------------------------------
+
+# define grid on which we compute GP regression
+
+raise NotImplementedError('''\
+define the grid over which we want to compute the GPR predictions
+target_x = ...
+''')
+
+#-------------------------------------------------
+
+# perform the regression
+
+num_compressed = len(compressed)
+
+if args.verbose:
+    print('generating predictions for %d compressed datasets' % num_compressed)
+
+mean = 0.0
+for compressed, params in zip(compressed, params):
+    interpolator.update(*params)
+    if args.time_execution:
+        print('  %s' % interpolator.kernel)
+    mean += interpolator.predict(target_x, source_x, compressed, verbose=args.time_execution)
+
+mean /= num_compressed
+
+#-------------------------------------------------
+
+# save the output
+raise NotImplementedError('write the output to disk')
