@@ -49,13 +49,21 @@ class Interpolator(object):
 about the structure of the covariance matrix or mean function
     """
 
-    def __init__(self, kernel):
+    def __init__(self, kernel, nugget=None):
         self.kernel = kernel
+        self.nugget = nugget
 
     def update(self, *args, **kwargs):
         """a convenience function for updating kernel parameters
         """
         return self.kernel.update(*args, **kwargs)
+
+    def update_nugget(self, *args, **kwargs):
+        """update the nugget's parameters
+        """
+        if self.nugget is None:
+            raise RuntimeError('cannot update nugget=None')
+        self.nugget.update(*args, **kwargs)
 
     #--------------------
 
