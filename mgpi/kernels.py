@@ -34,6 +34,13 @@ class Kernel(object):
     def params_dict(self):
         return dict(zip(self._params, self.params))
 
+    @property
+    def params_array(self):
+        ans = np.empty(1, dtype=[(_,float) for _ in self._params])
+        for key, val in zip(self._params, self.params):
+            ans[key] = val
+        return ans
+
     #---
 
     def __str__(self):

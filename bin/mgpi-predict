@@ -54,7 +54,7 @@ args.verbose |= args.time_execution
 #-------------------------------------------------
 
 # load data
-source_x, compressed, params, xcols = io.load_compressed_data(args.compressed, verbose=args.verbose)
+source_x, compressed, params, xcols, fcol = io.load_compressed_data(args.compressed, verbose=args.verbose)
 
 # load interpolator
 interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
@@ -89,4 +89,11 @@ mean /= num_compressed
 #-------------------------------------------------
 
 # save the output
-raise NotImplementedError('write the output to disk')
+io.save_conditioned_data(
+    args.outpath,
+    target_x,
+    mean,
+    xcols=xcols,
+    fcol=fcol,
+    verbose=args.verbose,
+)

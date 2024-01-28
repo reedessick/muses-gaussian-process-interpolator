@@ -82,6 +82,9 @@ def parse_table(path, section=None, verbose=False):
     if filetype == 'ascii':
         data = load_ascii_data(path, verbose=verbose)
 
+    elif filetype == 'hdftable':
+        data = load_hdf_data(path, verbose=verbose)
+
     elif filetype == 'stellarcollapse':
         data = load_stellarcollapse_data(path, verbose=verbose)
 
@@ -123,6 +126,52 @@ def parse_table(path, section=None, verbose=False):
 
 #------------------------
 
+__ASCII_SUFFIX__ = ['txt', 'dat', 'csv']
+__ASCII_SUFFIX__ += [_+'.gz' for _ in __ASCII_SUFFIX__]
+
+__HDF_SUFFIX__ = ['h5', 'hdf', 'hdf5']
+
+def load_data(path, *args, **kwargs):
+    if any([path.endswith(_) for _ in __ASCII_SUFFIX__]):
+        return load_ascii_data(path, *args, **kwargs)
+
+    elif any([path.endswith(_) for _ in __HDF_SUFFIX__]):
+        return load_hdf_data(path, *args, **kwargs)
+
+    else:
+        raise ValueError('could not interpret filetype for: '+path)
+
+#-----------
+
+def _2structured_array(source_x, source_f, xcols=None, fcol='f'):
+    """convert data into a structured array that's convenient for saving to disk
+    """
+    nsmp, ndim = source_x.shape
+
+    if xcols is None:
+        xcols = ['x%d'%dim for dim in range(ndim)]
+
+    data = np.empty(nsmp, dtype=[(_, float) for _ in xcols+[fcol]])
+    for dim in range(ndim):
+        data[xcols[dim]] = source_x[:,dim]
+    data[fcol] = source_f
+
+    return data
+
+#---
+
+def save_data(path, *args, **kwargs):
+    if any([path.endswith(_) for _ in __ASCII_SUFFIX__]):
+        return save_ascii_data(path, *args, **kwargs)
+
+    elif any([path.endswith(_) for _ in __HDF_SUFFIX__]):
+        return save_hdf_data(path, *args, **kwargs)
+
+    else:
+        raise ValueError('could not interpret filetype for: '+path)
+
+#------------------------
+
 def load_ascii_data(path, verbose=False):
     if verbose:
         print('loading tabular data from: '+path)
@@ -135,26 +184,44 @@ def load_ascii_data(path, verbose=False):
 
 #-----------
 
-def save_ascii_data(path, source_x, source_f, xcols=None, fcol='f', verbose=False):
+def save_ascii_data(path, data, verbose=False):
     """write tabular data into an ascii file
     """
-    nsmp, ndim = source_x.shape
-
     if verbose:
-        print('writing %d samples with dimension (%d+1) to: %s' % (nsmp, ndim, path))
-
-    if xcols is None:
-        xcols = ['x%d'%dim for dim in range(ndim)]
+        print('writing: ' + path)
 
     delimiter = ',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else ' '
+    np.savetxt(path, data, header=delimieter.join(data.dtype.names), comments='', delimeter=delimiter)
 
-    np.savetxt(
-        path,
-        np.transpose([source_x[:,dim] for dim in range(ndim)] + [source_f]),
-        header=delimiter.join(list(xcols)+[fcol]),
-        comments='',
-        delimiter=delimiter,
-    )
+#------------------------
+
+def load_hdf_data(path, key='eos', verbose=False):
+    """loading data from HDF file
+    """
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    if verbose:
+        print('loading tabular data from: '+path)
+
+    with h5py.File(path, 'r') as obj:
+        data = obj[key][:]
+
+    return data
+
+#-----------
+
+def save_hdf_data(path, data, key='eos', verbose=False):
+    """write tabular data into HDF file
+    """
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    if verbose:
+        print('writing: ' + path)
+
+    with h5py.File(path, 'w') as obj:
+        obj.create_dataset(name=key, data=data)
 
 #------------------------
 
@@ -254,6 +321,55 @@ def save_compressed_data(path, source_x, compressed, params, xcols=None, verbose
 
         obj.create_dataset(name='params', data=params)
         obj.create_dataset(name='compressed', data=compressed)
+
+#-------------------------------------------------
+
+def load_conditioned_data(path, verbose=False):
+    """load conditioned mean, cov from an HDF file
+    """
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    if verbose:
+        print('loading conditioned mean, cov from: ' + path)
+
+    with h5py.File(path, 'r') as obj:
+        fcol = obj['fcol']
+
+        xcols = obj['xcols'][:]
+        target_x = obj['target_x'][:]
+
+        mean = obj['mean'][:]
+        cov = obj['cov'][:] if ('cov' in obj.keys()) else None
+
+    # return
+    return mean, cov, target_x, xcols, fcol
+
+#------------------------
+
+def save_conditioned_data(path, target_x, mean, cov=None, xcols=None, fcol='f', verbose=False):
+    """save conditioned mean, cov into an HDF file
+    """
+    if h5py is None:
+        raise ImportError('could not import h5py')
+
+    nsmp, ndim = target_x.shape
+
+    if verbose:
+        print('saving conditioned mean, cov for %d locations into: %s' % (nsmp, path))
+
+    if xcols is None:
+        xcols = ['x%d'%dim for dim in range(ndim)]
+
+    with h5py.File(path, 'w') as obj:
+        obj.create_dataset(name='fcol', data=fcol)
+
+        obj.create_dataset(name='xcols', data=xcols)
+        obj.create_dataset(name='target_x', data=target_x)
+
+        obj.create_dataset(name='mean', data=mean)
+        if cov is not None:
+            obj.create_dataset(name='cov', data=cov)
 
 #-------------------------------------------------
 

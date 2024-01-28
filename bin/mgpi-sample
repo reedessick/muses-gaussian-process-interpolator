@@ -10,6 +10,7 @@ from argparse import ArgumentParser
 
 ### non-standard libraries
 from mgpi import (io, utils)
+from mgpi.interpolators import (DEFAULT_TEMPERATURE, DEFAULT_NUM_BURNIN, DEFAULT_NUM_SAMPLES, DEFAULT_NUM_WALKERS)
 
 #-------------------------------------------------
 
@@ -33,6 +34,7 @@ igroup.add_argument('--kernel-params', default=None, type=str,
 
 wgroup = parser.add_argument_group('workflow options')
 
+wgroup.add_argument('--temperature', default=DEFAULT_TEMPERATURE, type=float)
 wgroup.add_argument('--seed', default=None, type=int)
 
 #---
@@ -66,26 +68,30 @@ interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
 
 #-------------------------------------------------
 
-if args.verbose:
-    print('sampling kernel params')
-
 raise NotImplementedError('''
-
-params, logprob, _ = interpolator.sample_kernel(
-    source_x,
-    source_f,
-    logprior=None,
-    fixed=None,
-    temperature=DEFAULT_TEMPERATURE,
-    num_burnin=DEFAULT_NUM_BURNIN,
-    num_samples=DEFAULT_NUM_SAMPLES,
-    num_walkers=DEFAULT_NUM_WALKERS,
-    verbose=args.time_execution,
-)
-
+need to figure out how to set
+    logprior
+    fixed
 ''')
 
 #------------------------
 
+if args.verbose:
+    print('sampling kernel params')
+
+params, _, _ = interpolator.sample_kernel(
+    source_x,
+    source_f,
+    logprior=logprior,
+    fixed=fixed,
+    temperature=args.temperature,
+    num_burnin=args.num_burnin,
+    num_samples=args.num_samples,
+    num_walkers=args.num_walker,
+    verbose=args.time_execution,
+)
+
+#------------------------
+
 # write kernel parameters to disk
-raise NotImplementedError
+io.save_data(args.outpath, params, verbose=args.verbose)

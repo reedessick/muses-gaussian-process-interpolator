@@ -10,6 +10,7 @@ from argparse import ArgumentParser
 
 ### non-standard libraries
 from mgpi import io
+from mgpi.interpolators improt (DEFAULT_METHOD, DEFAULT_TEMPERATURE)
 
 #-------------------------------------------------
 
@@ -28,6 +29,13 @@ igroup.add_argument('interpolator', type=str,
     help='please provide an INI describing an interpolator')
 igroup.add_argument('--kernel-params', default=None, type=str,
     help='if provided, we will compress the data for each set of the parameters within this file')
+
+#---
+
+wgroup = parser.add_argument_group('workflow options')
+
+wgroup.add_argument('--method', default=DEFAULT_METHOD, type=str)
+wgroup.add_argument('--temperature', default=DEFAULT_TEMPERATURE, type=float)
 
 #---
 
@@ -55,24 +63,28 @@ interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
 
 #------------------------
 
-if args.verbose:
-    print('optimizing kernel parameters')
-
 raise NotImplementedError('''
-
-params = interpolator.optimize_kernel(
-    source_x,
-    source_f,
-    method=DEFAULT_METHOD,
-    logprior=None,
-    fixed=None,
-    temperature=DEFAULT_TEMPERATURE,
-    verbose=args.time_execution,
-)
-
+need to figure out how to set
+    logprior
+    fixed
 ''')
 
 #------------------------
 
+if args.verbose:
+    print('optimizing kernel parameters')
+
+params = interpolator.optimize_kernel(
+    source_x,
+    source_f,
+    method=args.method,
+    logprior=logprior,
+    fixed=fixed,
+    temperature=args.temperature,
+    verbose=args.time_execution,
+)
+
+#------------------------
+
 # write optimized kernel parameters to disk
-raise NotImplementedError
+io.save_data(args.outpath, params, verbose=args.verbose)

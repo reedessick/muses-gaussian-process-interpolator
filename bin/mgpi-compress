@@ -85,5 +85,6 @@ io.save_compressed_data(
     compressed,
     params,
     xcols=xcols,
+    fcol=fcol,
     verbose=args.verbose,
 )

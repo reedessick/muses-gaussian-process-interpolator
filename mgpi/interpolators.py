@@ -483,7 +483,7 @@ a mean function and a covariance matrix
         self.update(*result.x)
 
         # return
-        return self.kernel.params_dict
+        return self.kernel.params_array
 
     #--------------------
 

@@ -45,7 +45,7 @@ ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
 ogroup.add_argument('--time-execution', default=False, action='store_true')
 
 ogroup.add_argument('outpath', type=str,
-    help='the path into which we write compressed data')
+    help='the path into which we write conditioned data')
 
 #---
 
@@ -82,5 +82,12 @@ mean, cov = interpolator.condition(target_x, source_x, source_f, verbose=args.ti
 #-------------------------------------------------
 
 # save the output
-
-raise NotImplementedError('write the output to disk')
+io.save_conditioned_data(
+    args.outpath,
+    target_x,
+    mean,
+    cov=cov,
+    xcols=xcols,
+    fcol=fcol,
+    verbose=args.verbose,
+)
