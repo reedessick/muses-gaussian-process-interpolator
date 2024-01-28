@@ -33,7 +33,8 @@ igroup.add_argument('interpolator', type=str,
 
 wgroup = parser.add_argument_group('workflow arguments')
 
-### FIXME : also include parameters that describe the grid over which we make predictions
+wgroup.add_argument('--target', type=str,
+    help='please provide the path to tabular data defining the points at which we make predictions')
 
 #---
 
@@ -56,17 +57,11 @@ args.verbose |= args.time_execution
 # load data
 source_x, compressed, params, xcols, fcol = io.load_compressed_data(args.compressed, verbose=args.verbose)
 
+# load target_x locations
+target_x = io.load_target_data(args.target, xcols, verbose=args.verbose)
+
 # load interpolator
 interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
-
-#-------------------------------------------------
-
-# define grid on which we compute GP regression
-
-raise NotImplementedError('''\
-define the grid over which we want to compute the GPR predictions
-target_x = ...
-''')
 
 #-------------------------------------------------
 

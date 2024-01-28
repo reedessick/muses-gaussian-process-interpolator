@@ -279,6 +279,16 @@ def save_stellarcollapse_data(path, source_x, source_f, xcols=None, fcol='f', ve
 
 #-------------------------------------------------
 
+def load_target_data(path, xcols, verbose=False):
+    """load the target_x grid from a file
+    """
+    data = load_data(path, verbose=verbose)
+    for col in xcols:
+        assert col in data.dtype.names, 'required column=%s missing in %s' % (col, path)
+    return np.transpose([data[col] for col in xcols])
+
+#-------------------------------------------------
+
 def load_compressed_data(path, verbose=False):
     """load compressed data from an HDF file
     """
