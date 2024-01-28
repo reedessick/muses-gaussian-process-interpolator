@@ -9,7 +9,8 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 from argparse import ArgumentParser
 
 ### non-standard libraries
-from mgpi import io
+from mgpi import (io, utils)
+from mgpi.interpolators improt (DEFAULT_METHOD, DEFAULT_TEMPERATURE)
 
 #-------------------------------------------------
 
@@ -31,7 +32,20 @@ igroup.add_argument('--kernel-params', default=None, type=str,
 
 #---
 
-ogroup = parser.add_argument_group('output-arguments')
+wgroup = parser.add_argument_group('workflow arguments')
+
+wgroup.add_argument('--method', default=DEFAULT_METHOD, type=str)
+wgroup.add_argument('--temperature', default=DEFAULT_TEMPERATURE, type=float)
+
+wgroup.add_argument('--fix', nargs=2, default=[], type=str, action='append',
+    help='fix a parameter within the optimization. Can be repeated. e.g.: --fix sigma 1e-2')
+
+wgroup.add_argument('--limits', nargs=3, default=[], type=str, action='append',
+    help='set bounds for a parameter. Can be repeated. e.g.: --bounds sigma 0.1 1.0')
+
+#---
+
+ogroup = parser.add_argument_group('output arguments')
 
 ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
 ogroup.add_argument('--time-execution', default=False, action='store_true')
@@ -45,6 +59,9 @@ args = parser.parse_args()
 
 args.verbose |= args.time_execution
 
+fixed = dict((key, float(val)) for key, val in args.fix)
+bounds = dict((key, (float(m), float(M))) for key, m, M in args.bound)
+
 #-------------------------------------------------
 
 # load data
@@ -53,26 +70,22 @@ args.verbose |= args.time_execution
 # load interpolator
 interpolator = io.parse_interpolator(args.interpolator, verbose=args.verbose)
 
-#------------------------
+#-------------------------------------------------
 
 if args.verbose:
     print('optimizing kernel parameters')
 
-raise NotImplementedError('''
-
 params = interpolator.optimize_kernel(
     source_x,
     source_f,
-    method=DEFAULT_METHOD,
-    logprior=None,
-    fixed=None,
-    temperature=DEFAULT_TEMPERATURE,
+    method=args.method,
+    logprior=utils.construct_logprior(interpolator.kernel._params, bounds, fixed),
+    fixed=fixed,
+    temperature=args.temperature,
     verbose=args.time_execution,
 )
-
-''')
 
 #------------------------
 
 # write optimized kernel parameters to disk
-raise NotImplementedError
+io.save_data(args.outpath, params, verbose=args.verbose)
