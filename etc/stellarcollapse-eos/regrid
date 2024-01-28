@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+
+"""a simple script to run a linear interpolation to re-grid the stellar-collapse data
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import h5py
+import numpy as np
+
+from argparse import ArgumentParser
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+parser.add_argument('source', type=str)
+parser.add_argument('target', type=str)
+
+parser.add_argument('--grid', nargs=3, type=float, required=True,
+    help='the parameters of the new grid over logenergy. e.g.: --grid num_points minimum maximum')
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+
+args = parser.parse_args()
+
+#-------------------------------------------------
+
+# load (a subset of) the data
+if args.verbose:
+    print('loading: '+args.source)
+
+with h5py.File(args.source, 'r') as obj:
+    # read in the values that define the table
+    ye = obj['ye'][:]          # electron fraction
+    logt = obj['logtemp'][:]   # log of the temperature
+    logr = obj['logrho'][:]    # log of baryon density
+
+    # grab all data we want to switch with logt
+    loge = obj['logenergy'][:] # log of the energy density
+                               # should have shape(num_ye, num_logt, num_logr)
+
+num_ye = len(ye)
+num_logt = len(logt)
+num_logr = len(logr)
+
+#------------------------
+
+# iterate over pairs of (ye, logr) and generate linear predictions of loge(logt|ye, logr)
+
+num_loge, min_loge, max_loge = args.grid
+num_loge = int(num_loge)
+if args.verbose:
+    print('constructing grid in logenergy over (%.3e, %.3e) with %d points' % (min_loge, max_loge, num_loge))
+new_loge = np.linspace(min_loge, max_loge, num_loge)
+
+if args.verbose:
+    print('performing independent linear (re)interpolation based on (%d logt) for each of (%d ye) and (%d logrho) values' % \
+        (num_logt, num_ye, num_logr))
+new_logt = np.empty((num_ye, num_logr, num_loge), dtype=float)
+for ind_ye in range(num_ye):
+    for ind_logr in range(num_logr):
+        new_logt[ind_ye,ind_logr,:] = np.interp(new_loge, loge[ind_ye,:,ind_logr], logt)
+
+#------------------------
+
+# write the data to disk
+if args.verbose:
+    print('writing: '+args.target)
+
+with h5py.File(args.target, 'w') as obj:
+    obj.create_dataset(name='ye', data=ye)
+    obj.create_dataset(name='logrho', data=logr)
+
+    obj.create_dataset(name='logenergy', data=new_loge)
+    obj.create_dataset(name='logtemp', data=new_logt)
