@@ -306,6 +306,7 @@ arg2 = ...
 __INTERPOLATOR_NAME__ = 'Interpolator'
 __INTERPOLATOR_TYPE_NAME__ = 'type'
 __INTERPOLATOR_KERNEL_NAME__ = 'kernel'
+__INTERPOLATOR_NUGGET_NAME__ = 'nugget'
 
 def parse_interpolator(path, verbose=False):
     """load an interpolator based on a config file.
@@ -354,6 +355,29 @@ kwarg2 = ...
 
     options.remove(__INTERPOLATOR_KERNEL_NAME__)
 
+    # iterate over nugget (if present) and load each section in turn
+    if __INTERPOLATOR_NUGGET_NAME__ in options:
+        if verbose:
+            print('parsing nugget')
+
+        nugget = []
+        for name in config.get(__INTERPOLATOR_NAME__, __INTERPOLATOR_NUGGET_NAME__).split():
+            assert config.has_section(name), 'can not find section=%s' % name
+            try:
+                nugget.append(parse_kernel_section(config, name, verbose=verbose))
+            except:
+                warnings.Warn('could not parse section=%s. Skipping...' % name)
+
+        assert nugget, 'could not find any kernels within: '+path
+        if len(nugget) > 1:
+            nugget = CombinedKernel(*nugget)
+        else:
+            nugget = nugget[0]
+    else:
+        nugget = None    
+
+    options.remove(__INTERPOLATOR_NUGGET_NAME__)
+
     # get the rest of the options as kwargs
     kwargs = dict()
     for option in options:
@@ -373,11 +397,13 @@ kwarg2 = ...
     if verbose:
         print('instantiating interpolator')
         print('  %s' % interp_type)
-        print('  %s' % kernel)
+        print('  kernel = %s' % kernel)
+        if nugget:
+            print('  nugget = %s' % nugget)
         for key, val in kwargs.items():
             print('  %s = %s' % (key, val))
 
-    interp = _factory(Interpolator)[interp_type](kernel, **kwargs)
+    interp = _factory(Interpolator)[interp_type](kernel, nugget=nugget, **kwargs)
 
     # return
     return interp

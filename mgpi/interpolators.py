@@ -78,12 +78,12 @@ about the structure of the covariance matrix or mean function
         if verbose:
             print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
             t0 = time.time()
-        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        if self.nugget is None:
+            cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        else:
+            cov_src_src = self._x2cov(source_x, source_x, self.kernel+self.nugget, verbose=Verbose)
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
-
-        if self.nugget: # add the nugget
-            raise NotImplementedError
 
         # invert this covariance only once
         if verbose:
@@ -149,9 +149,6 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
-        if self.nugget: # add the nugget
-            raise NotImplementedError
-
         #---
 
         if verbose:
@@ -166,7 +163,10 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         if verbose:
             print('constructing %d x %d source-source covariance matrix'%(len(source_x), len(source_x)))
             t0 = time.time()
-        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        if self.nugget is None:
+            cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+        else:
+            cov_src_src = self._x2cov(source_x, source_x, self.kernel+self.nugget, verbose=Verbose)
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
@@ -331,10 +331,10 @@ a mean function and a covariance matrix
     def loglikelihood(self, source_x, source_f, verbose=False):
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
         """
-        cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
-
-        if self.nugget: # add the nugget
-            raise NotImplementedError
+        if self.nugget is None:
+            cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
+        else:
+            cov_src_src = self._x2cov(source_x, source_x, self.kernel+self.nugget, verbose=verbose)
 
         s, logdet = np.linalg.slogdet(cov_src_src)
         assert s > 0, 'covariance is not positive definite!'
@@ -751,13 +751,11 @@ This is based on:
         """construct the conditioned distribution for a single sample point
         this should make parallelization easier in the future
         """
-
-        if self.nugget: # add the nugget
-            raise NotImplementedError
-
         if len(ref_x) == 0: # no neighbors -> just the covariance at this point
             mean = 0.0 # we assume zero-mean process
             diag = self.kernel.cov(x, x)[0]
+            if self.nugget:
+                diag += self.nugget.cov(x,x)[0]
 
         else: # run the normal GP conditioning but restricted to the neighbor set
             m, c = Interpolator.condition(self, x, ref_x, ref_f, verbose=verbose)
