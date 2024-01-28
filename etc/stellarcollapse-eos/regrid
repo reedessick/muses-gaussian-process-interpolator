@@ -6,6 +6,8 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
+import sys
+
 import h5py
 import numpy as np
 
@@ -96,15 +98,18 @@ if args.plot:
 
     for ind_ye in range(num_ye):
         for ind_logr in range(num_logr):
-            fig = plt.figure()
-            ax = fig.add_axes([0.10, 0.10, 0.85, 0.80])
+            fig = plt.figure(figsize=(6,6))
+            ax = fig.add_axes([0.10, 0.29, 0.88, 0.69])
+            AX = fig.add_axes([0.10, 0.08, 0.88, 0.20])
 
+            # plot the data
             ax.plot(
                 loge[ind_ye,:,ind_logr],
                 logt,
-                marker='.',
-                markersize=1,
-                color='r',
+                marker='o',
+                markersize=2,
+                markeredgecolor='r',
+                markerfacecolor='none',
                 linestyle='none',
                 alpha=0.50,
                 label='original',
@@ -113,33 +118,69 @@ if args.plot:
             ax.plot(
                 new_loge,
                 new_logt[ind_ye,:,ind_logr],
-                marker='o',
+                marker='.',
                 markersize=2,
+                color='k',
                 markeredgecolor='k',
                 markerfacecolor='none',
-                linestyle='none',
+                linestyle='solid',
                 alpha=0.50,
                 label='regrid',
             )
 
-            ax.set_xlabel('logenergy')
+            plt.setp(ax.get_xticklabels(), visible=False)
             ax.set_ylabel('logtemp')
 
-            ax.tick_params(
-                left=True,
-                right=True,
-                top=True,
-                bottom=True,
-                direction='in',
-                which='both',
+            xmin, xmax = ax.get_xlim()
+            ymin, ymax = ax.get_ylim()
+            ax.text(
+                xmin + 0.02*(xmax-xmin),
+                ymax - 0.02*(ymax-ymin),
+                'Ye = %.3e\nlogrho = %.3e' % (ye[ind_ye], logr[ind_logr]),
+                ha='left',
+                va='top',
             )
-
-            ax.set_title('Ye = %.3e\nlogrho = %.3e' % (ye[ind_ye], logr[ind_logr]))
 
             ax.legend(loc='lower right')
 
+            # plot residuals
+
+            AX.plot(
+                loge[ind_ye,:,ind_logr],
+                logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr]),
+                marker='o',
+                markersize=2,
+                markeredgecolor='r',
+                markerfacecolor='none',
+                linestyle='none',
+                alpha=0.50,
+                label='original',
+            )
+
+            AX.set_xlim(ax.get_xlim())
+
+            AX.set_xlabel('logenergy')
+            AX.set_ylabel('error')
+
+            # decorate and save
+
+            for a in fig.axes:
+                a.tick_params(
+                    left=True,
+                    right=True,
+                    top=True,
+                    bottom=True,
+                    direction='in',
+                    which='both',
+                )
+
             figname = '.'.join(args.target.split('.')[:-1]) + '-%03d-%03d.png' % (ind_ye, ind_logr)
             if args.verbose:
-                print('saving: '+figname)
+                sys.stdout.write('\r    saving: '+figname)
+                sys.stdout.flush()
             fig.savefig(figname)
             plt.close(fig)
+
+    if args.verbose:
+        sys.stdout.write('\n')
+        sys.stdout.flush()
