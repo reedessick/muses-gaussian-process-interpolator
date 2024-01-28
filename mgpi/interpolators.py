@@ -360,10 +360,11 @@ a mean function and a covariance matrix
         if logprior is None: # set prior to be flat
             logprior = lambda x: 0.0
 
-        _params = self.kernel._params
         if fixed is not None:
             self.update(**fixed) # set the parameters to their fixed values
             _params = [name for name in _params if name not in fixed] # only update the un-fixed params within logprob
+        else:
+            _params = self.kernel._params
         
         def logprob(params):
             # check parameters to make sure they are reasonable

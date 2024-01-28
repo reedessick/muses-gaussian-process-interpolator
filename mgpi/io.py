@@ -14,7 +14,7 @@ except:
     h5py = None
 
 # non-standard libraries
-from .utils import _factory
+from .utils import factory
 from .kernels import (Kernel, CombinedKernel)
 from .interpolators import Interpolator
 
@@ -390,7 +390,7 @@ arg2 = ...
     assert config.has_option(section, __KERNEL_TYPE_NAME__), 'could not find %s in section=%s' % (__KERNEL_TYPE_NAME__, section)
 
     # grab the instantiator from dynamic list of implemented kernels
-    kernel = _factory(Kernel)[config.get(section, __KERNEL_TYPE_NAME__)]
+    kernel = factory(Kernel)[config.get(section, __KERNEL_TYPE_NAME__)]
 
     # now parse the options
     options = config.options(section)
@@ -519,7 +519,7 @@ kwarg2 = ...
         for key, val in kwargs.items():
             print('  %s = %s' % (key, val))
 
-    interp = _factory(Interpolator)[interp_type](kernel, nugget=nugget, **kwargs)
+    interp = factory(Interpolator)[interp_type](kernel, nugget=nugget, **kwargs)
 
     # return
     return interp

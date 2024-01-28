@@ -31,7 +31,7 @@ igroup.add_argument('--kernel-params', default=None, type=str,
 
 #---
 
-ogroup = parser.add_argument_group('output-arguments')
+ogroup = parser.add_argument_group('output arguments')
 
 ogroup.add_argument('-v', '--verbose', default=False, action='store_true')
 ogroup.add_argument('--time-execution', default=False, action='store_true')

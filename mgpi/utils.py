@@ -17,7 +17,7 @@ def seed(s, verbose=False):
 
 #-------------------------------------------------
 
-def _factory(klass):
+def factory(klass):
     """discover and return all the subclasses of a particular class
     """
     ans = dict()
@@ -25,6 +25,28 @@ def _factory(klass):
         ans[obj.__name__] = obj
         ans.update(_factory(obj))
     return ans
+
+#-------------------------------------------------
+
+def construct_logprior(names, bounds, fixed):
+    """define a function on-the-fly that will act as an appropriate logprior
+    """
+    names = [name for name in names if (name not in fixed)]
+    for key in bounds.keys():
+        assert key in names, 'cannot set prior for unknown parameter: '+key
+
+    # convert to index instead of parameter name
+    bounds = dict((names.index(key), val) for key, val in bounds.items())
+
+    # define the function
+    def logprob(params):
+        for ind, (m, M) in bounds.items():
+            if (params[ind] < m) or (M < params[ind]):
+                return -np.infty
+        return 0.0
+
+    # return
+    return logprob
 
 #-------------------------------------------------
 
