@@ -9,6 +9,13 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 import h5py
 import numpy as np
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+except ImportError:
+    plt = None
+
 from argparse import ArgumentParser
 
 #-------------------------------------------------
@@ -20,6 +27,8 @@ parser.add_argument('target', type=str)
 
 parser.add_argument('--grid', nargs=3, type=float, required=True,
     help='the parameters of the new grid over logenergy. e.g.: --grid num_points minimum maximum')
+
+parser.add_argument('--plot', default=False, action='store_true')
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 
@@ -58,10 +67,10 @@ new_loge = np.linspace(min_loge, max_loge, num_loge)
 if args.verbose:
     print('performing independent linear (re)interpolation based on (%d logt) for each of (%d ye) and (%d logrho) values' % \
         (num_logt, num_ye, num_logr))
-new_logt = np.empty((num_ye, num_logr, num_loge), dtype=float)
+new_logt = np.empty((num_ye, num_loge, num_logr), dtype=float)
 for ind_ye in range(num_ye):
     for ind_logr in range(num_logr):
-        new_logt[ind_ye,ind_logr,:] = np.interp(new_loge, loge[ind_ye,:,ind_logr], logt)
+        new_logt[ind_ye,:,ind_logr] = np.interp(new_loge, loge[ind_ye,:,ind_logr], logt)
 
 #------------------------
 
@@ -75,3 +84,62 @@ with h5py.File(args.target, 'w') as obj:
 
     obj.create_dataset(name='logenergy', data=new_loge)
     obj.create_dataset(name='logtemp', data=new_logt)
+
+#-------------------------------------------------
+
+if args.plot:
+    if plt is None:
+        raise ImportError('could not import matplotlib.pyplot')
+
+    if args.verbose:
+        print('plotting original data and (re)interpolated data')
+
+    for ind_ye in range(num_ye):
+        for ind_logr in range(num_logr):
+            fig = plt.figure()
+            ax = fig.add_axes([0.10, 0.10, 0.85, 0.80])
+
+            ax.plot(
+                loge[ind_ye,:,ind_logr],
+                logt,
+                marker='.',
+                markersize=1,
+                color='r',
+                linestyle='none',
+                alpha=0.50,
+                label='original',
+            )
+
+            ax.plot(
+                new_loge,
+                new_logt[ind_ye,:,ind_logr],
+                marker='o',
+                markersize=2,
+                markeredgecolor='k',
+                markerfacecolor='none',
+                linestyle='none',
+                alpha=0.50,
+                label='regrid',
+            )
+
+            ax.set_xlabel('logenergy')
+            ax.set_ylabel('logtemp')
+
+            ax.tick_params(
+                left=True,
+                right=True,
+                top=True,
+                bottom=True,
+                direction='in',
+                which='both',
+            )
+
+            ax.set_title('Ye = %.3e\nlogrho = %.3e' % (ye[ind_ye], logr[ind_logr]))
+
+            ax.legend(loc='lower right')
+
+            figname = '.'.join(args.target.split('.')[:-1]) + '-%03d-%03d.png' % (ind_ye, ind_logr)
+            if args.verbose:
+                print('saving: '+figname)
+            fig.savefig(figname)
+            plt.close(fig)
