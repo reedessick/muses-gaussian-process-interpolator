@@ -44,6 +44,15 @@ class Kernel(object):
 
     #---
 
+    def __add__(self, other):
+        """return a CombinedKernel
+        """
+        kernels = (self.kernels if isinstance(self, CombinedKernel) else [self]) \
+            + (other.kernels if isinstance(other, CombinedKernel) else [other])
+        return CombinedKernel(*kernels)
+
+    #---
+
     def update(self, *args, **params):
         """update the internal parameters that describe this kernel
         """
