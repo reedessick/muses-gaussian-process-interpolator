@@ -82,6 +82,9 @@ about the structure of the covariance matrix or mean function
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
 
+        if self.nugget: # add the nugget
+            raise NotImplementedError
+
         # invert this covariance only once
         if verbose:
             print('inverting source-source covariance matrix')
@@ -145,6 +148,9 @@ Based on Eq 2.19 of Rasmussen & Williams (2006) : http://gaussianprocess.org/gpm
         cov_tar_tar = self._x2cov(target_x, target_x, self.kernel, verbose=Verbose)
         if verbose:
             print('    time : %.6f sec' % (time.time()-t0))
+
+        if self.nugget: # add the nugget
+            raise NotImplementedError
 
         #---
 
@@ -326,6 +332,10 @@ a mean function and a covariance matrix
         """compute the marginal likelihood of observing source_f = f(source_x) given kernel and zero-mean process
         """
         cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=verbose)
+
+        if self.nugget: # add the nugget
+            raise NotImplementedError
+
         s, logdet = np.linalg.slogdet(cov_src_src)
         assert s > 0, 'covariance is not positive definite!'
 
@@ -610,10 +620,10 @@ This is based on:
     DOI: 10.1080/01621459.2015.1044091
     """
 
-    def __init__(self, kernel, num_neighbors=DEFAULT_NUM_NEIGHBORS, order_by_index=DEFAULT_ORDER_BY_INDEX):
+    def __init__(self, kernel, nugget=None, num_neighbors=DEFAULT_NUM_NEIGHBORS, order_by_index=DEFAULT_ORDER_BY_INDEX):
         self.num_neighbors = num_neighbors   # the number of neighbors retained in the algorithm
         self.order_by_index = order_by_index # order samples by the values in this index
-        Interpolator.__init__(self, kernel)
+        Interpolator.__init__(self, kernel, nugget=nugget)
 
     #---
 
@@ -741,6 +751,10 @@ This is based on:
         """construct the conditioned distribution for a single sample point
         this should make parallelization easier in the future
         """
+
+        if self.nugget: # add the nugget
+            raise NotImplementedError
+
         if len(ref_x) == 0: # no neighbors -> just the covariance at this point
             mean = 0.0 # we assume zero-mean process
             diag = self.kernel.cov(x, x)[0]
@@ -872,6 +886,10 @@ This is based on:
         We need to replace this with the NNGP covariance matrix. We should also be able to speed up the inversion dramatically (i.e., do not use np.linalg.inv but do the inversion by hand)
 
         cov_src_src = self._x2cov(source_x, source_x, self.kernel, verbose=Verbose)
+
+        if self.nugget: # add the nugget
+            raise NotImplementedError
+
         inv_cov_src_src = np.linalg.inv(cov_src_src)
 ''')
 
