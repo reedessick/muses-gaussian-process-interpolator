@@ -6,6 +6,7 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 
 #-------------------------------------------------
 
+import os
 import sys
 
 import h5py
@@ -96,6 +97,10 @@ if args.plot:
     if args.verbose:
         print('plotting original data and (re)interpolated data')
 
+    figtmp = '.'.join(args.target.split('.')[:-1])
+    os.makedirs(figtmp, exist_ok=True)
+    figtmp = os.path.join(figtmp, figtmp + '-%03d-%03d.png')
+    
     for ind_ye in range(num_ye):
         for ind_logr in range(num_logr):
             fig = plt.figure(figsize=(6,6))
@@ -176,7 +181,7 @@ if args.plot:
                     which='both',
                 )
 
-            figname = '.'.join(args.target.split('.')[:-1]) + '-%03d-%03d.png' % (ind_ye, ind_logr)
+            figname = figtmp % (ind_ye, ind_logr)
             if args.verbose:
                 sys.stdout.write('\r    saving: '+figname)
                 sys.stdout.flush()
