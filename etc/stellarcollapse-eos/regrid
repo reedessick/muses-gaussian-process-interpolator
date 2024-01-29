@@ -136,7 +136,7 @@ if args.plot:
             ax.text(
                 xmin + 0.02*(xmax-xmin),
                 ymax - 0.02*(ymax-ymin),
-                'Ye = %.3e\nlogrho = %.3e' % (ye[ind_ye], logr[ind_logr]),
+                'Ye = %.3f\nlogrho = %.3f' % (ye[ind_ye], logr[ind_logr]),
                 ha='left',
                 va='top',
             )
@@ -147,7 +147,7 @@ if args.plot:
 
             AX.plot(
                 loge[ind_ye,:,ind_logr],
-                logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr]),
+                np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr])),
                 marker='o',
                 markersize=2,
                 markeredgecolor='r',
@@ -161,6 +161,8 @@ if args.plot:
 
             AX.set_xlabel('logenergy')
             AX.set_ylabel('error')
+            AX.set_yscale('log')
+            AX.set_ylim(ymin=1e-5, ymax=1e+1)
 
             # decorate and save
 
