@@ -162,7 +162,7 @@ if args.plot:
             AX.set_xlabel('logenergy')
             AX.set_ylabel('error')
             AX.set_yscale('log')
-            AX.set_ylim(ymin=1e-5, ymax=1e+1)
+            AX.set_ylim(ymin=1e-5, ymax=2e+0)
 
             # decorate and save
 
