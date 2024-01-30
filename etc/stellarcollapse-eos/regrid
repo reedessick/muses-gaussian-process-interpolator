@@ -148,6 +148,8 @@ if args.plot:
 
             ax.legend(loc='lower right')
 
+            ax.grid(True, which='both')
+
             # plot residuals
 
             AX.plot(
@@ -167,7 +169,9 @@ if args.plot:
             AX.set_xlabel('logenergy')
             AX.set_ylabel('error')
             AX.set_yscale('log')
-            AX.set_ylim(ymin=1e-5, ymax=2e+0)
+            AX.set_ylim(ymin=1e-5, ymax=1e+1)
+
+            AX.grid(True, which='both')
 
             # decorate and save
 
