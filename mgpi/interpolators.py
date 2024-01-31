@@ -464,7 +464,7 @@ a mean function and a covariance matrix
         )
 
         # construct initial parameters
-        intial_params = self._construct_initial_params(logprior=logprior, fixed=fixed, size=1, verbose=Verbose)[0]
+        initial_params = self._construct_initial_params(logprior=logprior, fixed=fixed, size=1, verbose=Verbose)[0]
 
         ## run the minimizer
         if verbose:
