@@ -7,6 +7,7 @@ __author__ = "Reed Essick (reed.essick@gmail.com)"
 from configparser import ConfigParser
 
 import numpy as np
+import warnings
 
 try:
     import h5py
@@ -191,7 +192,7 @@ def save_ascii_data(path, data, verbose=False):
         print('writing: ' + path)
 
     delimiter = ',' if any(path.endswith(_) for _ in ['csv', 'csv.gz']) else ' '
-    np.savetxt(path, data, header=delimieter.join(data.dtype.names), comments='', delimeter=delimiter)
+    np.savetxt(path, data, header=delimiter.join(data.dtype.names), comments='', delimeter=delimiter)
 
 #------------------------
 
@@ -471,7 +472,7 @@ kwarg2 = ...
         try:
             kernel.append(parse_kernel_section(config, name, verbose=verbose))
         except:
-            warnings.Warn('could not parse section=%s. Skipping...' % name)
+            warnings.warn('could not parse section=%s. Skipping...' % name)
 
     assert kernel, 'could not find any kernels within: '+path
     if len(kernel) > 1:
