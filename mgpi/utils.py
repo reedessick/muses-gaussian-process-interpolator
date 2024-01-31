@@ -23,7 +23,7 @@ def factory(klass):
     ans = dict()
     for obj in klass.__subclasses__():
         ans[obj.__name__] = obj
-        ans.update(_factory(obj))
+        ans.update(factory(obj))
     return ans
 
 #-------------------------------------------------
