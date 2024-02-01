@@ -88,6 +88,11 @@ with h5py.File(args.target, 'w') as obj:
     obj.create_dataset(name='logenergy', data=new_loge)
     obj.create_dataset(name='logtemp', data=new_logt)
 
+    obj.attrs.create('num_loge', num_loge)
+    obj.attrs.create('shift_loge', shift_loge)
+    obj.attrs.create('min_loge', min_loge)
+    obj.attrs.create('max_loge', max_loge)
+
 #-------------------------------------------------
 
 if args.plot:
