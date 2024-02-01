@@ -70,8 +70,8 @@ for params in params:
 
     # update the kernel
     interpolator.update(*params)
-    if verbose:
-        print('    %s' % kernel)
+    if args.verbose:
+        print('    %s' % interpolator.kernel)
 
     # compress
     compressed.append(interpolator.compress(source_x, source_f, verbose=args.time_execution))

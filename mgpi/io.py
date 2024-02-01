@@ -40,6 +40,7 @@ def parse_table(path, section=None, verbose=False):
     # figure out which section we're supposed to read
     if section is None:
         section = config.sections()
+        assert len(section), 'no sections found!'
         assert len(section) == 1, 'must specify a section when multiple exist within %s\n%s' % \
             (path, '\n'.join(section))
         section = section[0]
@@ -300,6 +301,7 @@ def load_compressed_data(path, verbose=False):
         print('loading compressed datasets from: '+path)
 
     with h5py.File(path, 'r') as obj:
+        fcol = obj['fcol']
         xcols = obj['xcols'][:]
         source_x = obj['source_x'][:]
         params = obj['params'][:]
@@ -308,11 +310,11 @@ def load_compressed_data(path, verbose=False):
     if verbose:
         print('found %d compressed datasets for %d source_x (%s)' % (len(compressed), len(source_x), ', '.join(xcols)))
 
-    return source_x, compressed, params, xcols
+    return source_x, compressed, params, xcols, fcol
 
 #------------------------
 
-def save_compressed_data(path, source_x, compressed, params, xcols=None, verbose=False):
+def save_compressed_data(path, source_x, compressed, params, xcols=None, fcol='f', verbose=False):
     """save compressed data into an HDF file
     """
     if h5py is None:
@@ -327,6 +329,8 @@ def save_compressed_data(path, source_x, compressed, params, xcols=None, verbose
         xcols = ['x%d'%dim for dim in range(ndim)]
 
     with h5py.File(path, 'w') as obj:
+        obj.create_dataset(name='fcol', data=fcol)
+
         obj.create_dataset(name='xcols', data=xcols)
         obj.create_dataset(name='source_x', data=source_x)
 
