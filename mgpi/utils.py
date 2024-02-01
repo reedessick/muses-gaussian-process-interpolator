@@ -20,9 +20,8 @@ def seed(s, verbose=False):
 def factory(klass):
     """discover and return all the subclasses of a particular class
     """
-    ans = dict()
-    for obj in klass.__subclasses__():
-        ans[obj.__name__] = obj
+    ans = {klass.__name__:klass}       # include the current class
+    for obj in klass.__subclasses__(): # recursively add all subclasses
         ans.update(factory(obj))
     return ans
 
