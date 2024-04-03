@@ -236,13 +236,14 @@ if args.plot:
                 _new_loge[ind_ye][ind_logr],
                 np.interp(_new_loge[ind_ye][ind_logr], loge[ind_ye,:,ind_logr], logt),
                 marker='h',
-                markersize=2,
+                markersize=4,
                 color='b',
                 markeredgecolor='b',
                 markerfacecolor='none',
                 linestyle='dashed',
                 alpha=0.50,
-                label='conditioned regrid',
+                label='conditioned regrid (%d points)' % len(_new_loge[ind_ye][ind_logr]),
+                zorder=-10,
             )
 
             # plot the data for the overal grid
@@ -256,7 +257,7 @@ if args.plot:
                 markerfacecolor='none',
                 linestyle='solid',
                 alpha=0.50,
-                label='overall regrid',
+                label='overall regrid (%d points)' % len(new_loge),
             )
 
             plt.setp(ax.get_xticklabels(), visible=False)
