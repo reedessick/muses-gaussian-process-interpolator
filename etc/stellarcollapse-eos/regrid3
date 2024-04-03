@@ -54,11 +54,10 @@ parser.add_argument('--min-num-grid', type=int, default=50,
     help='sets the minimum number of grid points used to seed the bisection algorithm')
 parser.add_argument('--rtol', default=DEFAULT_RTOL, type=float)
 
-parser.add_argument('--min-low-loge-step', default=5e-4, type=float,
-    help='use this to thin the final set of grid points so that they are not too closely spaced')
+parser.add_argument('--num-cdf-grid', default=None, type=int)
 
-parser.add_argument('--min-high-loge-step', default=5e-4, type=float,
-    help='use this to thin the final set of grid points so that they are not too closely spaced')
+parser.add_argument('--min-low-loge-step', default=5e-4, type=float)
+parser.add_argument('--min-high-loge-step', default=5e-4, type=float)
 
 parser.add_argument('--plot', default=False, action='store_true')
 parser.add_argument('--dpi', default=300, type=float)
@@ -146,8 +145,20 @@ for ind_ye in range(num_ye):
 
 # convert to an array
 new_loge = sorted(set(new_loge))
+num_loge = len(new_loge)
 if args.verbose:
-    print('identified grid with %d points spanning (%.3e, %.3e) in logenergy' % (len(new_loge), new_loge[0], new_loge[-1]))
+    print('identified grid with %d points spanning (%.3e, %.3e) in logenergy' % (num_loge, new_loge[0], new_loge[-1]))
+
+#------------------------
+
+# "inverse-transform sample" to get estimate of a good grid spacing
+if args.num_cdf_grid is not None:
+    if args.verbose:
+        print('drawing %d grid points from distribution returned by bisection searches' % args.num_cdf_grid)
+
+    new_loge = np.interp(np.linspace(0, 1, args.num_cdf_grid), np.cumsum(np.ones(num_loge, dtype=float)) / num_loge, new_loge)
+
+#------------------------
 
 # downselect so that grid points are not too close
 
