@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# a quick script to iterate over commands and produce regridded data at different resolutions
+# Reed Essick (reed.essick@gmail.com)
+
+#-------------------------------------------------
+
+for NUM in 50 100 200 300 400 500
+do
+
+    ./regrid \
+        LS180_234r_136t_50y_analmu_20091212_SVNr26.h5 \
+        regrid-LS180_${NUM}logenergy.hdf \
+        --grid ${NUM} 17.5 33.0 \
+        --verbose \
+#        --plot
+
+    ./regrid2 \
+        LS180_234r_136t_50y_analmu_20091212_SVNr26.h5 \
+        regrid2-LS180_${NUM}logenergy.hdf \
+        --grid ${NUM} 16.0 17.5 33.0 \
+        --verbose \
+#        --plot
+
+done
