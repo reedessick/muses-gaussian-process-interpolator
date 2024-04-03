@@ -61,6 +61,7 @@ parser.add_argument('--min-high-loge-step', default=5e-4, type=float,
     help='use this to thin the final set of grid points so that they are not too closely spaced')
 
 parser.add_argument('--plot', default=False, action='store_true')
+parser.add_argument('--dpi', default=300, type=float)
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 parser.add_argument('-V', '--Verbose', default=False, action='store_true')
@@ -234,7 +235,7 @@ if args.plot:
             ax.plot(
                 _new_loge[ind_ye][ind_logr],
                 np.interp(_new_loge[ind_ye][ind_logr], loge[ind_ye,:,ind_logr], logt),
-                marker='.',
+                marker='h',
                 markersize=2,
                 color='b',
                 markeredgecolor='b',
@@ -280,7 +281,7 @@ if args.plot:
             AX.plot(
                 loge[ind_ye,:,ind_logr],
                 np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], _new_loge[ind_ye][ind_logr], _new_logt[ind_ye][ind_logr])),
-                marker='.',
+                marker='h',
                 markersize=2,
                 color='b',
                 markeredgecolor='b',
@@ -325,7 +326,7 @@ if args.plot:
             if args.verbose:
                 sys.stdout.write('\r    saving: '+figname)
                 sys.stdout.flush()
-            fig.savefig(figname)
+            fig.savefig(figname, dpi=args.dpi)
             plt.close(fig)
 
     if args.verbose:

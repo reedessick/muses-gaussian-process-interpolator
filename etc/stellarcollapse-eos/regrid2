@@ -32,6 +32,7 @@ parser.add_argument('--grid', nargs=4, type=float, required=True,
     help='the parameters of the new grid over logenergy. e.g.: --grid num_points shift minimum maximum')
 
 parser.add_argument('--plot', default=False, action='store_true')
+parser.add_argument('--dpi', default=300, type=float)
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
 
@@ -194,7 +195,7 @@ if args.plot:
             if args.verbose:
                 sys.stdout.write('\r    saving: '+figname)
                 sys.stdout.flush()
-            fig.savefig(figname)
+            fig.savefig(figname, dpi=args.dpi)
             plt.close(fig)
 
     if args.verbose:
