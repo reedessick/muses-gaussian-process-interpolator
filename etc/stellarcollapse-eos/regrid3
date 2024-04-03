@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+
+"""a simple script to run a linear interpolation to re-grid the stellar-collapse data
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import os
+import sys
+
+import h5py
+import numpy as np
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+except ImportError:
+    plt = None
+
+from argparse import ArgumentParser
+
+#-------------------------------------------------
+
+DEFAULT_RTOL = 1e-1
+
+def bisect2grid(min_x, min_y, max_x, max_y, ref_x, ref_y, rtol=DEFAULT_RTOL, verbose=False):
+    """perform a recursive bisection search to figure out where we need to add more grid points to make an accurate interpolator
+    """
+    if verbose:
+        print('        bisect2grid within x=(%.9e, %.9e)' % (min_x, max_x))
+    mid_x = 0.5*(min_x + max_x) # take the average as the new proposal
+
+    # check to see if interpolator accuracy is good enough
+    mid_y = (mid_x-min_x)/(max_x-min_x) * (max_y - min_y) + min_y # prediction from a simple linear interpolator
+    mid_Y = np.interp(mid_x, ref_x, ref_y) # a more accurate interpolator (which we take to be ground truth)
+
+    if abs(mid_y - mid_Y) > rtol*abs(mid_Y): # we need to recurse
+        return bisect2grid(min_x, min_y, mid_x, mid_Y, ref_x, ref_y, rtol=rtol, verbose=verbose)[:-1] \
+            + bisect2grid(mid_x, mid_Y, max_x, max_y, ref_x, ref_y, rtol=rtol, verbose=verbose)
+
+    else: # this resolution should be good enough
+        return [min_x, mid_x, max_x]
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+parser.add_argument('source', type=str)
+parser.add_argument('target', type=str)
+
+parser.add_argument('--min-num-grid', type=int, default=50,
+    help='sets the minimum number of grid points used to seed the bisection algorithm')
+parser.add_argument('--rtol', default=DEFAULT_RTOL, type=float)
+
+parser.add_argument('--min-loge-step', default=5e-4, type=float,
+    help='use this to thin the final set of grid points so that they are not too closely spaced')
+
+parser.add_argument('--plot', default=False, action='store_true')
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+parser.add_argument('-V', '--Verbose', default=False, action='store_true')
+parser.add_argument('--debug', default=False, action='store_true')
+
+args = parser.parse_args()
+
+assert (args.min_num_grid >= 2), '--min-num-grid must be at least 2'
+
+args.Verbose |= args.debug
+args.verbose |= args.Verbose
+
+#-------------------------------------------------
+
+# load (a subset of) the data
+if args.verbose:
+    print('loading: '+args.source)
+
+with h5py.File(args.source, 'r') as obj:
+    # read in the values that define the table
+    ye = obj['ye'][:]          # electron fraction
+    logt = obj['logtemp'][:]   # log of the temperature
+    logr = obj['logrho'][:]    # log of baryon density
+
+    # grab all data we want to switch with logt
+    loge = obj['logenergy'][:] # log of the energy density
+                               # should have shape(num_ye, num_logt, num_logr)
+
+num_ye = len(ye)
+num_logt = len(logt)
+num_logr = len(logr)
+
+#------------------------
+
+# iterate over pairs of (ye, logr) and figure out where we need to add points to get reasonable interpolators
+_new_loge = []
+_new_logt = []
+
+new_loge = [] # not sorted by (ye, logr)
+
+for ind_ye in range(num_ye):
+    if args.Verbose:
+        print('ind_ye : %4d / %4d' % (ind_ye, num_ye))
+
+    _new_loge_ye = []
+    _new_logt_ye = []
+
+    for ind_logr in range(num_logr):
+        if args.Verbose:
+            print('    ind_logr : %4d / %4d' % (ind_logr, num_logr))
+
+        old_loge = loge[ind_ye,:,ind_logr]
+
+        # perform a bisection search to build an accurate interpolator
+        _loge = np.linspace(old_loge[0], old_loge[-1], args.min_num_grid)
+        _new_loge_ye_logr = [_loge[0]]
+        for m, M in zip(_loge[:-1], _loge[1:]):
+            _new_loge_ye_logr += bisect2grid(
+                m,
+                np.interp(m, old_loge, logt),
+                M,
+                np.interp(M, old_loge, logt),
+                old_loge,
+                logt,
+                rtol=args.rtol,
+                verbose=args.debug,
+            )[1:]
+
+        if args.Verbose:
+            print('        selected %d grid points' % len(_new_loge_ye_logr))
+
+        _new_loge_ye.append(_new_loge_ye_logr)
+        _new_logt_ye.append(np.interp(_new_loge_ye_logr, old_loge, logt))
+
+        new_loge += _new_loge_ye_logr
+
+    _new_loge.append(_new_loge_ye)
+
+# convert to an array
+new_loge = np.array(sorted(set(new_loge)), dtype=float)
+
+
+raise NotImplementedError('''
+use args.min_loge_step to downselect new_loge to reasonable values
+''')
+
+num_loge = len(new_loge)
+if args.verbose:
+    print('constructed grid with %d points spanning (%.3e, %.3e) in logenergy' % (num_loge, new_loge[0], new_loge[-1]))
+
+#------------------------
+
+# iterate over pairs of (ye, logr) and generate linear predictions of loge(logt|ye, logr)
+if args.verbose:
+    print('performing independent linear (re)interpolation based on (%d logt) for each of (%d ye) and (%d logrho) values' % \
+        (num_logt, num_ye, num_logr))
+new_logt = np.empty((num_ye, num_loge, num_logr), dtype=float)
+for ind_ye in range(num_ye):
+    for ind_logr in range(num_logr):
+        new_logt[ind_ye,:,ind_logr] = np.interp(new_loge, loge[ind_ye,:,ind_logr], logt)
+
+#------------------------
+
+# write the data to disk
+if args.verbose:
+    print('writing: '+args.target)
+
+with h5py.File(args.target, 'w') as obj:
+    obj.create_dataset(name='ye', data=ye)
+    obj.create_dataset(name='logrho', data=logr)
+
+    obj.create_dataset(name='logenergy', data=new_loge)
+    obj.create_dataset(name='logtemp', data=new_logt)
+
+#-------------------------------------------------
+
+if args.plot:
+    if plt is None:
+        raise ImportError('could not import matplotlib.pyplot')
+
+    if args.verbose:
+        print('plotting original data and (re)interpolated data')
+
+    figtmp = '.'.join(args.target.split('.')[:-1])
+    os.makedirs(figtmp, exist_ok=True)
+    figtmp = os.path.join(figtmp, figtmp + '-%03d-%03d.png')
+    
+    for ind_ye in range(num_ye):
+        for ind_logr in range(num_logr):
+            fig = plt.figure(figsize=(6,6))
+            ax = fig.add_axes([0.10, 0.29, 0.88, 0.69])
+            AX = fig.add_axes([0.10, 0.08, 0.88, 0.20])
+
+            # plot the original data
+            ax.plot(
+                loge[ind_ye,:,ind_logr],
+                logt,
+                marker='o',
+                markersize=2,
+                markeredgecolor='r',
+                markerfacecolor='none',
+                linestyle='none',
+                alpha=0.50,
+                label='original',
+            )
+
+            # plot the grid for this (ye, logr)
+            ax.plot(
+                _new_loge[ind_ye, ind_logr],
+                np.interp(_new_loge[ind_ye, ind_logr], loge[ind_ye,:,ind_logr], logt),
+                marker='.',
+                markersize=2,
+                color='b',
+                markeredgecolor='b',
+                markerfacecolor='none',
+                linestyle='solid',
+                alpha=0.50,
+                label='regrid',
+            )
+
+            # plot the data for the overal grid
+            ax.plot(
+                new_loge,
+                new_logt[ind_ye,:,ind_logr],
+                marker='.',
+                markersize=2,
+                color='k',
+                markeredgecolor='k',
+                markerfacecolor='none',
+                linestyle='solid',
+                alpha=0.50,
+                label='regrid',
+            )
+
+            plt.setp(ax.get_xticklabels(), visible=False)
+            ax.set_ylabel('logtemp')
+
+            xmin, xmax = ax.get_xlim()
+            ymin, ymax = ax.get_ylim()
+            ax.text(
+                xmin + 0.02*(xmax-xmin),
+                ymax - 0.02*(ymax-ymin),
+                'Ye = %.3f\nlogrho = %.3f' % (ye[ind_ye], logr[ind_logr]),
+                ha='left',
+                va='top',
+            )
+
+            ax.legend(loc='lower right')
+
+            ax.grid(True, which='both')
+
+            # plot residuals
+
+            AX.plot(
+                loge[ind_ye,:,ind_logr],
+                np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], _new_loge[ind_ye, ind_logr], _new_logt[ind_ye, ind_logr])),
+                marker='.',
+                markersize=2,
+                color='b',
+                markeredgecolor='b',
+                markerfacecolor='none',
+                linestyle='solid',
+                alpha=0.50,
+            )
+
+            AX.plot(
+                loge[ind_ye,:,ind_logr],
+                np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr])),
+                marker='o',
+                markersize=2,
+                markeredgecolor='r',
+                markerfacecolor='none',
+                linestyle='none',
+                alpha=0.50,
+            )
+
+            AX.set_xlim(ax.get_xlim())
+
+            AX.set_xlabel('logenergy')
+            AX.set_ylabel('error')
+            AX.set_yscale('log')
+            AX.set_ylim(ymin=1e-5, ymax=1e+1)
+
+            AX.grid(True, which='both')
+
+            # decorate and save
+
+            for a in fig.axes:
+                a.tick_params(
+                    left=True,
+                    right=True,
+                    top=True,
+                    bottom=True,
+                    direction='in',
+                    which='both',
+                )
+
+            figname = figtmp % (ind_ye, ind_logr)
+            if args.verbose:
+                sys.stdout.write('\r    saving: '+figname)
+                sys.stdout.flush()
+            fig.savefig(figname)
+            plt.close(fig)
+
+    if args.verbose:
+        sys.stdout.write('\n')
+        sys.stdout.flush()

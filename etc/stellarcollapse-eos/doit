@@ -5,9 +5,11 @@
 
 #-------------------------------------------------
 
-for NUM in 50 100 200 300 400 500
+#for NUM in 50 100 200 300 400 500
+for NUM in 50
 do
 
+    echo \
     ./regrid \
         LS180_234r_136t_50y_analmu_20091212_SVNr26.h5 \
         regrid-LS180_${NUM}logenergy.hdf \
@@ -15,11 +17,21 @@ do
         --verbose \
 #        --plot
 
+    echo \
     ./regrid2 \
         LS180_234r_136t_50y_analmu_20091212_SVNr26.h5 \
         regrid2-LS180_${NUM}logenergy.hdf \
         --grid ${NUM} 16.0 17.5 33.0 \
         --verbose \
 #        --plot
+
+    python -i \
+    ./regrid3 \
+        LS180_234r_136t_50y_analmu_20091212_SVNr26.h5 \
+        regrid3-LS180_${NUM}logenergy.hdf \
+        --min-num-grid ${NUM} \
+        --rtol 1e-2 \
+        --Verbose \
+        --plot
 
 done
