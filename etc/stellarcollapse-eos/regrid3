@@ -54,7 +54,10 @@ parser.add_argument('--min-num-grid', type=int, default=50,
     help='sets the minimum number of grid points used to seed the bisection algorithm')
 parser.add_argument('--rtol', default=DEFAULT_RTOL, type=float)
 
-parser.add_argument('--min-loge-step', default=5e-4, type=float,
+parser.add_argument('--min-low-loge-step', default=5e-4, type=float,
+    help='use this to thin the final set of grid points so that they are not too closely spaced')
+
+parser.add_argument('--min-high-loge-step', default=5e-4, type=float,
     help='use this to thin the final set of grid points so that they are not too closely spaced')
 
 parser.add_argument('--plot', default=False, action='store_true')
@@ -93,6 +96,9 @@ num_logr = len(logr)
 #------------------------
 
 # iterate over pairs of (ye, logr) and figure out where we need to add points to get reasonable interpolators
+if args.verbose:
+    print('iterating over %d ye and %d logr values' % (num_ye, num_logr))
+
 _new_loge = []
 _new_logt = []
 
@@ -135,18 +141,38 @@ for ind_ye in range(num_ye):
         new_loge += _new_loge_ye_logr
 
     _new_loge.append(_new_loge_ye)
+    _new_logt.append(_new_logt_ye)
 
 # convert to an array
-new_loge = np.array(sorted(set(new_loge)), dtype=float)
+new_loge = sorted(set(new_loge))
+if args.verbose:
+    print('identified grid with %d points spanning (%.3e, %.3e) in logenergy' % (len(new_loge), new_loge[0], new_loge[-1]))
 
+# downselect so that grid points are not too close
 
-raise NotImplementedError('''
-use args.min_loge_step to downselect new_loge to reasonable values
-''')
+switch = np.max(loge[:,:,-1]) # where we switch between low and high min loge step
 
+if args.verbose:
+    print('downselecting loge grid with switch-point at loge=%.6e' % switch)
+    print('    below switch minimum step-size : %.6e' % args.min_low_loge_step)
+    print('    above switch minimum step-size : %.6e' % args.min_high_loge_step)
+
+keep = [new_loge[0]] # start with the smallest value
+for _loge in new_loge:
+    if _loge <= switch:
+        if _loge >= keep[-1] + args.min_low_loge_step:
+            keep.append(_loge)
+    else:
+        if _loge >= keep[-1] + args.min_high_loge_step:
+            keep.append(_loge)
+
+if keep[-1] != new_loge[-1]: # make sure we have the biggest value
+    keep.append(new_loge[-1])
+
+new_loge = keep
 num_loge = len(new_loge)
 if args.verbose:
-    print('constructed grid with %d points spanning (%.3e, %.3e) in logenergy' % (num_loge, new_loge[0], new_loge[-1]))
+    print('retained grid with %d points spanning (%.3e, %.3e) in logenergy' % (num_loge, new_loge[0], new_loge[-1]))
 
 #------------------------
 
@@ -206,16 +232,16 @@ if args.plot:
 
             # plot the grid for this (ye, logr)
             ax.plot(
-                _new_loge[ind_ye, ind_logr],
-                np.interp(_new_loge[ind_ye, ind_logr], loge[ind_ye,:,ind_logr], logt),
+                _new_loge[ind_ye][ind_logr],
+                np.interp(_new_loge[ind_ye][ind_logr], loge[ind_ye,:,ind_logr], logt),
                 marker='.',
                 markersize=2,
                 color='b',
                 markeredgecolor='b',
                 markerfacecolor='none',
-                linestyle='solid',
+                linestyle='dashed',
                 alpha=0.50,
-                label='regrid',
+                label='conditioned regrid',
             )
 
             # plot the data for the overal grid
@@ -229,7 +255,7 @@ if args.plot:
                 markerfacecolor='none',
                 linestyle='solid',
                 alpha=0.50,
-                label='regrid',
+                label='overall regrid',
             )
 
             plt.setp(ax.get_xticklabels(), visible=False)
@@ -253,22 +279,22 @@ if args.plot:
 
             AX.plot(
                 loge[ind_ye,:,ind_logr],
-                np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], _new_loge[ind_ye, ind_logr], _new_logt[ind_ye, ind_logr])),
+                np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], _new_loge[ind_ye][ind_logr], _new_logt[ind_ye][ind_logr])),
                 marker='.',
                 markersize=2,
                 color='b',
                 markeredgecolor='b',
                 markerfacecolor='none',
-                linestyle='solid',
+                linestyle='none',
                 alpha=0.50,
             )
 
             AX.plot(
                 loge[ind_ye,:,ind_logr],
                 np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr])),
-                marker='o',
+                marker='.',
                 markersize=2,
-                markeredgecolor='r',
+                markeredgecolor='k',
                 markerfacecolor='none',
                 linestyle='none',
                 alpha=0.50,
