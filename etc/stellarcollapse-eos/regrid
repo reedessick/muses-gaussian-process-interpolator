@@ -28,7 +28,7 @@ parser = ArgumentParser()
 parser.add_argument('source', type=str)
 parser.add_argument('target', type=str)
 
-parser.add_argument('--grid', nargs=3, type=float, required=True,
+parser.add_argument('--grid', nargs='*', type=float, required=True,
     help='the parameters of the new grid over logenergy. e.g.: --grid num_points minimum maximum')
 
 parser.add_argument('--plot', default=False, action='store_true')
@@ -62,7 +62,17 @@ num_logr = len(logr)
 
 # iterate over pairs of (ye, logr) and generate linear predictions of loge(logt|ye, logr)
 
-num_loge, min_loge, max_loge = args.grid
+if len(args.grid) == 1:
+    num_loge = args.grid[0]
+    min_loge = np.min(loge)
+    max_loge = np.max(loge)
+
+elif len(args.grid) == 3:
+    num_loge, min_loge, max_loge = args.grid
+
+else:
+    raise ValueError('could not interpret --grid')
+
 num_loge = int(num_loge)
 if args.verbose:
     print('constructing grid in logenergy over (%.3e, %.3e) with %d points' % (min_loge, max_loge, num_loge))

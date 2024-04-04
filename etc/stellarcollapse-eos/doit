@@ -73,7 +73,7 @@ do
         ./regrid \
             ${PATHS[$NAME]} \
             regrid-${NAME}_${NUM}logenergy.hdf \
-            --grid ${NUM} 17.5 33.0 \
+            --grid ${NUM} \
             --verbose \
             --plot --dpi 100
 
