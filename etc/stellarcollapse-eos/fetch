@@ -61,5 +61,8 @@ wget https://stellarcollapse.org/~evanoc/BHB_lpEOS_rho234_temp180_ye60_version_1
 
 for compressed in $(ls ./*bz2)
 do
+
+    echo "decompressing: $compressed"
     bzip2 -d $compressed
+
 done
