@@ -37,7 +37,7 @@ PATHS[GShen_FSU_20120824]="GShenFSU_2.1EOS_rho280_temp180_ye52_version_1.1_20120
 
 # Hempel
 
-PAHTS[Hempel_TMA]="Hempel_TMAEOS_rho234_temp180_ye60_version_1.1_20120817.h5"
+PATHS[Hempel_TMA]="Hempel_TMAEOS_rho234_temp180_ye60_version_1.1_20120817.h5"
 PATHS[Hempel_TM1]="Hempel_TM1EOS_rho234_temp180_ye60_version_1.1_20120817.h5"
 PATHS[Hempel_FSG]="Hempel_FSGEOS_rho234_temp180_ye60_version_1.1_20120817.h5"
 PATHS[Hempel_NL3]="Hempel_NL3EOS_rho234_temp180_ye60_version_1.1_20120817.h5"
@@ -55,7 +55,7 @@ PATHS[Hempel_SFHx]="Hempel_SFHxEOS_rho234_temp180_ye60_version_1.1_20120817.h5"
 
 # Banik
 
-PAHTS[BHB_l]="BHB_lEOS_rho234_temp180_ye60_version_1.02_20140422.h5"
+PATHS[BHB_l]="BHB_lEOS_rho234_temp180_ye60_version_1.02_20140422.h5"
 PATHS[BHB_lp]="BHB_lpEOS_rho234_temp180_ye60_version_1.02_20140422.h5"
 
 #-------------------------------------------------
@@ -65,8 +65,7 @@ do
 
     # fixed step sizes
 
-#    for NUM in 50 100 200 300 400 500
-    for NUM in 500
+    for NUM in 50 100 200 300 400 500
     do
 
 #        echo \
@@ -75,7 +74,7 @@ do
             regrid-${NAME}_${NUM}logenergy.hdf \
             --grid ${NUM} \
             --verbose \
-            --plot --dpi 100
+#            --plot --dpi 100
 
         echo \
         ./regrid2 \
@@ -83,7 +82,7 @@ do
             regrid2-${NAME}_${NUM}logenergy.hdf \
             --grid ${NUM} 16.0 17.5 33.0 \
             --verbose \
-            --plot --dpi 100
+#            --plot --dpi 100
 
     done
 
@@ -91,16 +90,16 @@ do
 
     # addaptive step sizes
 
-    echo \
+#    echo \
     ./regrid3 \
         ${PATHS[$NAME]} \
-        regrid2-${NAME}_${NUM}logenergy.hdf \
+        regrid3-${NAME}_adaptive-logenergy.hdf \
         --min-num-grid 2 \
         --rtol 1e-2 \
         --num-cdf-grid 100000 \
         --min-low-loge-step 1e-2 \
         --min-high-loge-step 1e-1 \
         --verbose \
-        --plot --dpi 100
+#        --plot --dpi 100
 
 done
