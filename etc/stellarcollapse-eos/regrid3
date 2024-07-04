@@ -240,7 +240,7 @@ if args.plot:
                 markeredgecolor='r',
                 markerfacecolor='none',
                 linestyle='none',
-                alpha=0.50,
+                alpha=0.25,
                 label='original',
             )
 

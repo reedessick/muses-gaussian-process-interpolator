@@ -73,7 +73,7 @@ if args.verbose:
     print('found %d loge samples' % len(flat_loge))
 
 # select subset of points
-decimate = 1000
+decimate = 5000
 new_loge = flat_loge[::decimate]
 
 num_loge = len(new_loge)
@@ -133,7 +133,7 @@ if args.plot:
                 markeredgecolor='r',
                 markerfacecolor='none',
                 linestyle='none',
-                alpha=0.50,
+                alpha=0.25,
                 label='original',
             )
 
