@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+
+"""a simple script to run a linear interpolation to re-grid the stellar-collapse data
+"""
+__author__ = "Reed Essick (reed.essick@gmail.com)"
+
+#-------------------------------------------------
+
+import os
+import sys
+
+import h5py
+import numpy as np
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+except ImportError:
+    plt = None
+
+from argparse import ArgumentParser
+
+#-------------------------------------------------
+
+parser = ArgumentParser()
+
+parser.add_argument('source', type=str)
+parser.add_argument('target', type=str)
+
+parser.add_argument('--plot', default=False, action='store_true')
+parser.add_argument('--dpi', default=300, type=float)
+
+parser.add_argument('-v', '--verbose', default=False, action='store_true')
+parser.add_argument('-V', '--Verbose', default=False, action='store_true')
+parser.add_argument('--debug', default=False, action='store_true')
+
+args = parser.parse_args()
+
+args.Verbose |= args.debug
+args.verbose |= args.Verbose
+
+#-------------------------------------------------
+
+# load (a subset of) the data
+if args.verbose:
+    print('loading: '+args.source)
+
+with h5py.File(args.source, 'r') as obj:
+    # read in the values that define the table
+    ye = obj['ye'][:]          # electron fraction
+    logt = obj['logtemp'][:]   # log of the temperature
+    logr = obj['logrho'][:]    # log of baryon density
+
+    # grab all data we want to switch with logt
+    loge = obj['logenergy'][:] # log of the energy density
+                               # should have shape(num_ye, num_logt, num_logr)
+
+num_ye = len(ye)
+num_logt = len(logt)
+num_logr = len(logr)
+
+dlogt = logt[1] - logt[0]
+
+#------------------------
+
+# flatten and sort loge
+
+flat_loge = loge.flatten()
+flat_loge.sort()
+
+if args.verbose:
+    print('found %d loge samples' % len(flat_loge))
+
+# select subset of points
+decimate = 1000
+new_loge = flat_loge[::decimate]
+
+num_loge = len(new_loge)
+
+if args.verbose:
+    print('retaining one sample out of every %d --> %d samples remain' % (decimate, num_loge))
+
+#------------------------
+
+# iterate over pairs of (ye, logr) and generate linear predictions of loge(logt|ye, logr)
+if args.verbose:
+    print('performing independent linear (re)interpolation based on (%d logt) for each of (%d ye) and (%d logrho) values' % \
+        (num_logt, num_ye, num_logr))
+new_logt = np.empty((num_ye, num_loge, num_logr), dtype=float)
+for ind_ye in range(num_ye):
+    for ind_logr in range(num_logr):
+        new_logt[ind_ye,:,ind_logr] = np.interp(new_loge, loge[ind_ye,:,ind_logr], logt)
+
+#------------------------
+
+# write the data to disk
+if args.verbose:
+    print('writing: '+args.target)
+
+with h5py.File(args.target, 'w') as obj:
+    obj.create_dataset(name='ye', data=ye)
+    obj.create_dataset(name='logrho', data=logr)
+
+    obj.create_dataset(name='logenergy', data=new_loge)
+    obj.create_dataset(name='logtemp', data=new_logt)
+
+#-------------------------------------------------
+
+if args.plot:
+    if plt is None:
+        raise ImportError('could not import matplotlib.pyplot')
+
+    if args.verbose:
+        print('plotting original data and (re)interpolated data')
+
+    figtmp = '.'.join(args.target.split('.')[:-1])
+    os.makedirs(figtmp, exist_ok=True)
+    figtmp = os.path.join(figtmp, figtmp + '-%03d-%03d.png')
+    
+    for ind_ye in range(num_ye):
+        for ind_logr in range(num_logr):
+            fig = plt.figure(figsize=(6,6))
+            ax = fig.add_axes([0.10, 0.29, 0.88, 0.69])
+            AX = fig.add_axes([0.10, 0.08, 0.88, 0.20])
+
+            # plot the original data
+            ax.plot(
+                loge[ind_ye,:,ind_logr],
+                logt,
+                marker='o',
+                markersize=2,
+                markeredgecolor='r',
+                markerfacecolor='none',
+                linestyle='none',
+                alpha=0.50,
+                label='original',
+            )
+
+            # plot the data for the overal grid
+            ax.plot(
+                new_loge,
+                new_logt[ind_ye,:,ind_logr],
+                marker='.',
+                markersize=2,
+                color='k',
+                markeredgecolor='k',
+                markerfacecolor='none',
+                linestyle='solid',
+                alpha=0.50,
+                label='overall regrid (%d points)' % len(new_loge),
+            )
+
+            plt.setp(ax.get_xticklabels(), visible=False)
+            ax.set_ylabel('logtemp')
+
+            xmin, xmax = ax.get_xlim()
+            ymin, ymax = ax.get_ylim()
+            ax.text(
+                xmin + 0.02*(xmax-xmin),
+                ymax - 0.02*(ymax-ymin),
+                'Ye = %.3f\nlogrho = %.3f' % (ye[ind_ye], logr[ind_logr]),
+                ha='left',
+                va='top',
+            )
+
+            ax.legend(loc='lower right')
+
+            ax.grid(True, which='both')
+
+            # plot residuals
+
+            AX.plot(
+                loge[ind_ye,:,ind_logr],
+                np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr])),
+                marker='.',
+                markersize=2,
+                markeredgecolor='k',
+                markerfacecolor='none',
+                linestyle='none',
+                alpha=0.50,
+#                label='interpolator error',
+            )
+
+            AX.plot(ax.get_xlim(), [dlogt]*2, color='b', label='original logtemp spacing')
+
+            AX.set_xlim(ax.get_xlim())
+
+            AX.set_xlabel('logenergy')
+            AX.set_ylabel('error')
+            AX.set_yscale('log')
+            AX.set_ylim(ymin=1e-6, ymax=2e+0)
+
+            AX.legend(loc='upper right')
+
+            AX.grid(True, which='both')
+
+            # decorate and save
+
+            for a in fig.axes:
+                a.tick_params(
+                    left=True,
+                    right=True,
+                    top=True,
+                    bottom=True,
+                    direction='in',
+                    which='both',
+                )
+
+            figname = figtmp % (ind_ye, ind_logr)
+            if args.verbose:
+                sys.stdout.write('\r    saving: '+figname)
+                sys.stdout.flush()
+            fig.savefig(figname, dpi=args.dpi)
+            plt.close(fig)
+
+    if args.verbose:
+        sys.stdout.write('\n')
+        sys.stdout.flush()

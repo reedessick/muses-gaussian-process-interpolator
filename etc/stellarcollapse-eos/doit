@@ -105,11 +105,19 @@ do
         --plot \
     || exit 1
 
-#    echo \
+    echo \
     ./regrid4 \
         ${PATHS[$NAME]} \
         regrid4-${NAME}_adaptive-logenergy.hdf \
         --min-dloge 1e-4 \
+        --verbose \
+        --plot \
+    || exit 1
+
+#    echo \
+    ./regrid5 \
+        ${PATHS[$NAME]} \
+        regrid5-${NAME}_adaptive-logenergy.hdf \
         --verbose \
         --plot \
     || exit 1
