@@ -93,6 +93,8 @@ num_ye = len(ye)
 num_logt = len(logt)
 num_logr = len(logr)
 
+dlogt = logt[1] - logt[0]
+
 #------------------------
 
 # iterate over pairs of (ye, logr) and figure out where we need to add points to get reasonable interpolators
@@ -313,12 +315,16 @@ if args.plot:
                 alpha=0.50,
             )
 
+            AX.plot(ax.get_xlim(), [dlogt]*2, color='b', label='original logtemp spacing')
+
             AX.set_xlim(ax.get_xlim())
 
             AX.set_xlabel('logenergy')
             AX.set_ylabel('error')
             AX.set_yscale('log')
             AX.set_ylim(ymin=1e-5, ymax=1e+1)
+
+            AX.legend(loc='upper right')
 
             AX.grid(True, which='both')
 

@@ -65,16 +65,17 @@ do
 
     # fixed step sizes
 
-    for NUM in 50 100 200 300 400 500
+    for NUM in 50 100 200 300 400 500 1000 10000
     do
 
-#        echo \
+        echo \
         ./regrid \
             ${PATHS[$NAME]} \
             regrid-${NAME}_${NUM}logenergy.hdf \
             --grid ${NUM} \
             --verbose \
-#            --plot --dpi 100
+            --plot \
+        || exit 1
 
         echo \
         ./regrid2 \
@@ -82,7 +83,8 @@ do
             regrid2-${NAME}_${NUM}logenergy.hdf \
             --grid ${NUM} 16.0 17.5 33.0 \
             --verbose \
-#            --plot --dpi 100
+            --plot \
+        || exit 1
 
     done
 
@@ -90,16 +92,26 @@ do
 
     # addaptive step sizes
 
-#    echo \
+    echo \
     ./regrid3 \
         ${PATHS[$NAME]} \
         regrid3-${NAME}_adaptive-logenergy.hdf \
         --min-num-grid 2 \
         --rtol 1e-2 \
         --num-cdf-grid 100000 \
-        --min-low-loge-step 1e-2 \
+        --min-low-loge-step 1e-4 \
         --min-high-loge-step 1e-1 \
         --verbose \
-#        --plot --dpi 100
+        --plot \
+    || exit 1
+
+#    echo \
+    ./regrid4 \
+        ${PATHS[$NAME]} \
+        regrid4-${NAME}_adaptive-logenergy.hdf \
+        --min-dloge 1e-4 \
+        --verbose \
+        --plot \
+    || exit 1
 
 done

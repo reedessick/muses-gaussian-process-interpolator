@@ -28,15 +28,19 @@ parser = ArgumentParser()
 parser.add_argument('source', type=str)
 parser.add_argument('target', type=str)
 
-parser.add_argument('--grid', nargs=4, type=float, required=True,
-    help='the parameters of the new grid over logenergy. e.g.: --grid num_points shift minimum maximum')
+parser.add_argument('--min-dloge', default=1e-5, type=float)
 
 parser.add_argument('--plot', default=False, action='store_true')
 parser.add_argument('--dpi', default=300, type=float)
 
 parser.add_argument('-v', '--verbose', default=False, action='store_true')
+parser.add_argument('-V', '--Verbose', default=False, action='store_true')
+parser.add_argument('--debug', default=False, action='store_true')
 
 args = parser.parse_args()
+
+args.Verbose |= args.debug
+args.verbose |= args.Verbose
 
 #-------------------------------------------------
 
@@ -62,14 +66,71 @@ dlogt = logt[1] - logt[0]
 
 #------------------------
 
-# iterate over pairs of (ye, logr) and generate linear predictions of loge(logt|ye, logr)
-
-num_loge, shift_loge, min_loge, max_loge = args.grid
-num_loge = int(num_loge)
+# iterate over pairs of (ye, logr) and figure out where we need to add points to get reasonable interpolators
 if args.verbose:
-    print('constructing grid in logenergy over (%.3e, %.3e) with %d points' % (min_loge, max_loge, num_loge))
-new_loge = 10**np.linspace(np.log10(min_loge - shift_loge), np.log10(max_loge - shift_loge), num_loge) + shift_loge
+    print('iterating over %d ye and %d logr values' % (num_ye, num_logr))
 
+loge_min = []
+loge_max = []
+
+dloge_min = []
+
+for ind_ye in range(num_ye):
+    if args.Verbose:
+        print('ind_ye : %4d / %4d' % (ind_ye, num_ye))
+
+    for ind_logr in range(num_logr):
+        if args.Verbose:
+            print('    ind_logr : %4d / %4d' % (ind_logr, num_logr))
+
+        old_loge = loge[ind_ye,:,ind_logr]
+
+        loge_min.append(np.min(old_loge))
+        loge_max.append(np.max(old_loge))
+
+        dloge_min.append(np.min(np.abs(np.diff(old_loge))))
+
+loge_min = np.array(sorted(set(loge_min)))
+loge_max = np.array(sorted(set(loge_max)))
+
+if args.verbose:
+    print('identifed %d distinct min(loge)' % len(loge_min))
+    print('identifed %d distinct max(loge)' % len(loge_max))
+
+#------------------------
+
+# concatenate the minima and maxima together
+loge_max = loge_max[loge_max > max(loge_min)]
+if min(loge_max) > max(loge_min):
+    if args.verbose:
+        print('    filling in points between max(loge_min) and min(loge_max)')
+    middle = np.arange(max(loge_min), min(loge_max), 1e-5)[1:-1] ### FIXME! let user specify the dloge spacing here?
+    loge_max = np.concatenate((middle, loge_max))
+new_loge = np.concatenate((loge_min, middle, loge_max))
+num_loge = len(new_loge)
+
+if args.verbose:
+    print('identified grid with %d points spanning (%.3e, %.3e) in logenergy' % (num_loge, new_loge[0], new_loge[-1]))
+
+#------------------------
+
+# downselect the new grid?
+
+if args.min_dloge is not None:
+    new = [new_loge[0]]
+    for _loge in new_loge[1:]:
+        if _loge > new[-1] + args.min_dloge:
+            new.append(_loge)
+
+    new_loge = new
+    num_loge = len(new_loge)
+
+    if args.verbose:
+        print('retained grid with %d points spanning (%.3e, %.3e) with minimum spacing of %.3e in logenergy' % (num_loge, new_loge[0], new_loge[-1], args.min_dloge))
+
+#------------------------
+
+# iterate over pairs of (ye, logr) and generate linear predictions of loge(logt|ye, logr)
 if args.verbose:
     print('performing independent linear (re)interpolation based on (%d logt) for each of (%d ye) and (%d logrho) values' % \
         (num_logt, num_ye, num_logr))
@@ -91,11 +152,6 @@ with h5py.File(args.target, 'w') as obj:
     obj.create_dataset(name='logenergy', data=new_loge)
     obj.create_dataset(name='logtemp', data=new_logt)
 
-    obj.attrs.create('num_loge', num_loge)
-    obj.attrs.create('shift_loge', shift_loge)
-    obj.attrs.create('min_loge', min_loge)
-    obj.attrs.create('max_loge', max_loge)
-
 #-------------------------------------------------
 
 if args.plot:
@@ -108,14 +164,14 @@ if args.plot:
     figtmp = '.'.join(args.target.split('.')[:-1])
     os.makedirs(figtmp, exist_ok=True)
     figtmp = os.path.join(figtmp, figtmp + '-%03d-%03d.png')
-
+    
     for ind_ye in range(num_ye):
         for ind_logr in range(num_logr):
             fig = plt.figure(figsize=(6,6))
             ax = fig.add_axes([0.10, 0.29, 0.88, 0.69])
             AX = fig.add_axes([0.10, 0.08, 0.88, 0.20])
 
-            # plot the data
+            # plot the original data
             ax.plot(
                 loge[ind_ye,:,ind_logr],
                 logt,
@@ -128,6 +184,7 @@ if args.plot:
                 label='original',
             )
 
+            # plot the data for the overal grid
             ax.plot(
                 new_loge,
                 new_logt[ind_ye,:,ind_logr],
@@ -138,7 +195,7 @@ if args.plot:
                 markerfacecolor='none',
                 linestyle='solid',
                 alpha=0.50,
-                label='regrid',
+                label='overall regrid (%d points)' % len(new_loge),
             )
 
             plt.setp(ax.get_xticklabels(), visible=False)
@@ -163,13 +220,13 @@ if args.plot:
             AX.plot(
                 loge[ind_ye,:,ind_logr],
                 np.abs(logt - np.interp(loge[ind_ye,:,ind_logr], new_loge, new_logt[ind_ye,:,ind_logr])),
-                marker='o',
+                marker='.',
                 markersize=2,
-                markeredgecolor='r',
+                markeredgecolor='k',
                 markerfacecolor='none',
                 linestyle='none',
                 alpha=0.50,
-                label='original',
+#                label='interpolator error',
             )
 
             AX.plot(ax.get_xlim(), [dlogt]*2, color='b', label='original logtemp spacing')
@@ -179,7 +236,7 @@ if args.plot:
             AX.set_xlabel('logenergy')
             AX.set_ylabel('error')
             AX.set_yscale('log')
-            AX.set_ylim(ymin=1e-5, ymax=1e+1)
+            AX.set_ylim(ymin=1e-6, ymax=2e+0)
 
             AX.legend(loc='upper right')
 
